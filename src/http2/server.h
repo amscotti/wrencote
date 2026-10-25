@@ -28,7 +28,11 @@ void wc_h2_server_set_limits(wc_h2_server *server, size_t max_body, size_t max_r
                              size_t max_header);
 void wc_h2_server_free(wc_h2_server *server);
 
-/* Consumes bytes from the TLS transport. Returns EAGAIN when more bytes are needed. */
+/* Consumes bytes from the TLS transport. [consumed] receives how many bytes the
+ * session accepted; a caller that sees consumed < len must retain the remainder
+ * and pass it again with the next feed. Never returns WC_EAGAIN (nghttp2
+ * buffers internally); protocol failures are WC_EPROTO and callback failures
+ * WC_EIO. */
 wc_status wc_h2_server_feed(wc_h2_server *server, const uint8_t *data, size_t len,
                             size_t *consumed);
 

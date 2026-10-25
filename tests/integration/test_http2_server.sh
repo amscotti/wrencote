@@ -29,6 +29,9 @@ test "$(curl -fsk --http2 'https://127.0.0.1:18098/inspect?a=1&b=2' -H 'x-probe:
 test "$(curl -fsk --http2 https://127.0.0.1:18098/headers -H 'x-probe: hello1')" = "hello1"
 curl -fsk --http2 -D - https://127.0.0.1:18098/health -o /dev/null | grep -qi 'x-test: yes'
 curl -fsk --http2 -D - https://127.0.0.1:18098/json -o /dev/null | grep -qi 'content-type: application/json' 
+# HEAD over h2 must carry Content-Length but no DATA body (checked in Python).
+head_len="$(curl -fsk --http2 -I https://127.0.0.1:18098/health | tr -d '\r' | awk -F': ' 'tolower($1)=="content-length"{print $2}')"
+test "$head_len" = "3"
 test "$(curl -fsk --http1.1 https://127.0.0.1:18098/health)" = "ok"
 curl -fsk --http2 https://127.0.0.1:18098/stop >/dev/null 2>&1 || true
 wait "$pid" 2>/dev/null || true

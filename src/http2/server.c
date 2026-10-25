@@ -22,11 +22,18 @@ typedef struct wc_h2_stream {
     wc_buf body;
     wc_buf response;
     size_t sent;
+    size_t header_bytes;
     bool responded;
     bool ready;
+    /* Tombstone: closed while the dispatch loop may still hold a pointer;
+     * actually freed when the loop drains its dead list. */
+    bool dead;
     wc_h2_header headers[100];
     size_t header_count;
     struct wc_h2_stream *next;
+    /* Separate link for the deferred-free list; never touches the live chain
+     * the dispatch loop walks. */
+    struct wc_h2_stream *dead_next;
 } wc_h2_stream;
 
 struct wc_h2_server {
@@ -39,9 +46,11 @@ struct wc_h2_server {
     size_t max_response;
     size_t max_header;
     wc_h2_stream *streams;
+    wc_h2_stream *dead;
     size_t stream_count;
     int32_t last_stream_id;
     bool closing;
+    bool dispatching;
     bool scan_preface;
     wc_buf scan;
     wc_buf output;
@@ -73,6 +82,22 @@ static wc_h2_stream *create_stream(wc_h2_server *server, int32_t id) {
     return stream;
 }
 
+static void destroy_stream(wc_h2_server *server, wc_h2_stream *stream) {
+    (void)server;
+    wc_mem_free(stream->method);
+    wc_mem_free(stream->path);
+    for (size_t i = 0; i < stream->header_count; i++) {
+        wc_mem_free((void *)(uintptr_t)stream->headers[i].name);
+        wc_mem_free((void *)(uintptr_t)stream->headers[i].value);
+    }
+    wc_buf_free(&stream->body);
+    wc_buf_free(&stream->response);
+    wc_mem_free(stream);
+}
+
+/* Closes [stream]. While the ready-stream dispatch loop is running the free
+ * is deferred (tombstone): responding one stream can synchronously finish and
+ * close another stream the loop still holds a pointer to. */
 static void free_stream(wc_h2_server *server, wc_h2_stream *stream) {
     wc_h2_stream **link = &server->streams;
     while (*link != NULL) {
@@ -82,17 +107,26 @@ static void free_stream(wc_h2_server *server, wc_h2_stream *stream) {
         }
         link = &(*link)->next;
     }
-    free(stream->method);
-    free(stream->path);
-    for (size_t i = 0; i < stream->header_count; i++) {
-        free((void *)(uintptr_t)stream->headers[i].name);
-        free((void *)(uintptr_t)stream->headers[i].value);
-    }
-    wc_buf_free(&stream->body);
-    wc_buf_free(&stream->response);
-    wc_mem_free(stream);
     if (server->stream_count > 0) {
         server->stream_count--;
+    }
+    if (server->dispatching && !stream->dead) {
+        stream->dead = true;
+        stream->dead_next = server->dead;
+        server->dead = stream;
+        return;
+    }
+    if (!stream->dead) {
+        destroy_stream(server, stream);
+    }
+}
+
+static void drain_dead_streams(wc_h2_server *server) {
+    while (server->dead != NULL) {
+        wc_h2_stream *stream = server->dead;
+        server->dead = stream->dead_next;
+        stream->dead_next = NULL;
+        destroy_stream(server, stream);
     }
 }
 
@@ -138,7 +172,10 @@ static int on_header(nghttp2_session *session, const nghttp2_frame *frame, const
         return 0;
     }
     if (name_len == 7 && memcmp(name, ":method", 7) == 0) {
-        free(stream->method);
+        if (value_len == 0 || value_len > server->max_header) {
+            return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+        }
+        wc_mem_free(stream->method);
         stream->method = wc_mem_malloc(value_len + 1);
         if (stream->method == NULL) {
             return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -149,19 +186,36 @@ static int on_header(nghttp2_session *session, const nghttp2_frame *frame, const
         if (value_len > server->max_header) {
             return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
         }
-        free(stream->path);
+        wc_mem_free(stream->path);
         stream->path = wc_mem_malloc(value_len + 1);
         if (stream->path == NULL) {
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
         memcpy(stream->path, value, value_len);
         stream->path[value_len] = '\0';
-    } else if (name_len > 0 && name[0] != ':' && stream->header_count < 100) {
+    } else if (name_len > 0 && name[0] != ':') {
+        if (stream->header_count >= 100) {
+            /* Fail closed instead of silently dropping the header (h1
+             * answers the same request with 431). */
+            nghttp2_submit_rst_stream(server->session, NGHTTP2_FLAG_NONE, frame->hd.stream_id,
+                                      NGHTTP2_ENHANCE_YOUR_CALM);
+            return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+        }
+        /* Per-stream header budget: without it a request of many multi-kilobyte
+         * cookie values passes the framed header-list check only depending on
+         * the nghttp2 version. */
+        if (stream->header_bytes > server->max_header ||
+            name_len > server->max_header - stream->header_bytes ||
+            value_len > server->max_header - stream->header_bytes - name_len) {
+            nghttp2_submit_rst_stream(server->session, NGHTTP2_FLAG_NONE, frame->hd.stream_id,
+                                      NGHTTP2_ENHANCE_YOUR_CALM);
+            return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+        }
         char *header_name = wc_mem_malloc(name_len + 1);
         char *header_value = wc_mem_malloc(value_len + 1);
         if (header_name == NULL || header_value == NULL) {
-            free(header_name);
-            free(header_value);
+            wc_mem_free(header_name);
+            wc_mem_free(header_value);
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
         memcpy(header_name, name, name_len);
@@ -171,6 +225,7 @@ static int on_header(nghttp2_session *session, const nghttp2_frame *frame, const
         stream->headers[stream->header_count].name = header_name;
         stream->headers[stream->header_count].value = header_value;
         stream->header_count++;
+        stream->header_bytes += name_len + value_len;
     }
     return 0;
 }
@@ -317,9 +372,11 @@ void wc_h2_server_free(wc_h2_server *server) {
     if (server == NULL) {
         return;
     }
+    server->dispatching = false;
     while (server->streams != NULL) {
         free_stream(server, server->streams);
     }
+    drain_dead_streams(server);
     if (server->session != NULL) {
         nghttp2_session_del(server->session);
         server->session = NULL;
@@ -392,17 +449,28 @@ wc_status wc_h2_server_feed(wc_h2_server *server, const uint8_t *data, size_t le
         (void)nghttp2_session_send(server->session);
         return WC_OK;
     }
+    server->dispatching = true;
     for (wc_h2_stream *stream = server->streams; stream != NULL;) {
         wc_h2_stream *next = stream->next;
+        if (stream->dead) {
+            stream = next;
+            continue;
+        }
         if (stream->ready) {
             if (next == NULL && server->flush != NULL && !server->flush(server->flush_user)) {
+                server->dispatching = false;
+                drain_dead_streams(server);
                 return WC_EIO;
             }
             stream->ready = false;
+            /* Responding can synchronously close this stream or any other
+             * still-referenced one; frees are deferred to the drain below. */
             invoke_handler(server, stream);
         }
         stream = next;
     }
+    server->dispatching = false;
+    drain_dead_streams(server);
     if (nghttp2_session_send(server->session) != 0) {
         return WC_EIO;
     }
@@ -415,7 +483,7 @@ wc_status wc_h2_server_feed(wc_h2_server *server, const uint8_t *data, size_t le
 wc_status wc_h2_server_respond_headers(wc_h2_server *server, int32_t stream_id, int status,
                                        const char *content_type, const wc_h2_header *headers,
                                        size_t header_count, const uint8_t *body, size_t body_len) {
-    if (server == NULL || body == NULL) {
+    if (server == NULL || (body == NULL && body_len > 0)) {
         return WC_EINVAL;
     }
     if (body_len > server->max_response) {
@@ -428,15 +496,21 @@ wc_status wc_h2_server_respond_headers(wc_h2_server *server, int32_t stream_id, 
     if (wc_buf_append(&stream->response, body, body_len) != WC_OK) {
         return WC_ENOMEM;
     }
+    /* HEAD carries the representation length but no DATA; 204/1xx carry
+     * neither a body nor a Content-Length; 304 carries no body. */
+    bool head_request = stream->method != NULL && strcmp(stream->method, "HEAD") == 0;
+    bool no_content = status == 204 || (status >= 100 && status < 200);
+    bool suppress_body = head_request || no_content || status == 304;
+    size_t reported_len = no_content ? 0 : body_len;
     uint8_t status_name[] = ":status";
     uint8_t type_name[] = "content-type";
     uint8_t length_name[] = "content-length";
     uint8_t status_text[4];
-    uint8_t type_text[64];
+    uint8_t type_text[128];
     uint8_t length_text[32];
     snprintf((char *)status_text, sizeof status_text, "%d", status);
     snprintf((char *)type_text, sizeof type_text, "%s", content_type);
-    snprintf((char *)length_text, sizeof length_text, "%zu", body_len);
+    snprintf((char *)length_text, sizeof length_text, "%zu", reported_len);
     nghttp2_nv nv_headers[3 + 64];
     nv_headers[0] = (nghttp2_nv){status_name, status_text, sizeof status_name - 1,
                                  (uint8_t)strlen((char *)status_text), NGHTTP2_NV_FLAG_NONE};
@@ -450,13 +524,16 @@ wc_status wc_h2_server_respond_headers(wc_h2_server *server, int32_t stream_id, 
             (uint8_t *)(uintptr_t)headers[i].name, (uint8_t *)(uintptr_t)headers[i].value,
             strlen(headers[i].name), strlen(headers[i].value), NGHTTP2_NV_FLAG_NONE};
     }
-    nghttp2_priority_spec priority;
-    nghttp2_priority_spec_init(&priority, 0, body_len > 65536 ? 1 : 256, 0);
-    (void)nghttp2_submit_priority(server->session, NGHTTP2_FLAG_NONE, stream_id, &priority);
     nghttp2_data_provider provider = {.source.ptr = stream, .read_callback = read_response};
-    int result =
-        nghttp2_submit_response(server->session, stream_id, nv_headers, nv_count, &provider);
+    int result = nghttp2_submit_response(server->session, stream_id, nv_headers, nv_count,
+                                         suppress_body ? NULL : &provider);
     if (result != 0) {
+        /* Not submitted: drop the staged body so a retry does not append it
+         * twice, and close the stream instead of leaving it dangling. */
+        wc_buf_clear(&stream->response);
+        stream->sent = 0;
+        (void)nghttp2_submit_rst_stream(server->session, NGHTTP2_FLAG_NONE, stream_id,
+                                        NGHTTP2_INTERNAL_ERROR);
         return WC_EIO;
     }
     stream->responded = true;

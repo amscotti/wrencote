@@ -40,5 +40,27 @@ while len(ended) < COUNT:
 assert len(ended) == COUNT, (len(ended), COUNT)
 for stream_id, expected in streams.items():
     assert bodies[stream_id].decode() == expected, (stream_id, bodies[stream_id], expected)
+
+# HEAD must carry no DATA frames over h2 (regression: the adapter installed a
+# data provider for every response).
+head_id = 1 + COUNT * 2
+conn.send_headers(
+    head_id,
+    [(":method", "HEAD"), (":scheme", "https"), (":authority", "localhost"),
+     (":path", "/health")],
+    end_stream=True,
+)
+sock.sendall(conn.data_to_send())
+head_data = b""
+head_ended = False
+while not head_ended:
+    data = sock.recv(65536)
+    assert data, "connection closed before HEAD ended"
+    for event in conn.receive_data(data):
+        if isinstance(event, DataReceived) and event.stream_id == head_id:
+            head_data += event.data
+        if isinstance(event, StreamEnded) and event.stream_id == head_id:
+            head_ended = True
+assert head_data == b"", head_data
 sock.close()
-print(f"h2 unique: {COUNT}/{COUNT} streams matched their bodies")
+print(f"h2 unique: {COUNT}/{COUNT} streams matched their bodies; HEAD carried no body")
