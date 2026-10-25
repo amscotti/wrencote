@@ -56,10 +56,17 @@ int main(void) {
     wc_transport *server = wc_tls_transport_new(context, sockets[1]);
     assert(server != NULL);
     assert(wc_transport_flush(server) == WC_OK);
+    assert(wc_transport_blocked_on(server) == 0);
     char early[] = "x";
     struct iovec early_iov = {.iov_base = early, .iov_len = 1};
     assert(wc_transport_writev(server, &early_iov, 1) == -1);
     assert(errno == EAGAIN);
+    /* An empty socket means the handshake is waiting for input: the transport
+     * must not ask for write readiness (that caused a level-triggered spin). */
+    char peek[1];
+    assert(wc_transport_read(server, peek, sizeof peek) == -1);
+    assert(errno == EAGAIN);
+    assert(wc_transport_blocked_on(server) == WC_EV_READ);
 
     SSL_CTX *client_context = SSL_CTX_new(TLS_client_method());
     assert(client_context != NULL);
@@ -88,6 +95,8 @@ int main(void) {
     }
     assert(client_done);
     assert(wc_transport_flush(server) == WC_OK);
+    /* After the handshake the transport waits for the next request. */
+    assert(wc_transport_blocked_on(server) == WC_EV_READ);
 
     const char ping[] = "ping";
     assert(SSL_write(client, ping, 4) == 4);

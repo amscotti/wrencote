@@ -11,7 +11,18 @@
 typedef struct tls_transport_state {
     wc_tls_conn *conn;
     bool handshaken;
+    uint32_t blocked;
 } tls_transport_state;
+
+static uint32_t blocked_from(wc_tls_result result) {
+    if (result == WC_TLS_WANT_READ) {
+        return WC_EV_READ;
+    }
+    if (result == WC_TLS_WANT_WRITE) {
+        return WC_EV_WRITE;
+    }
+    return 0;
+}
 
 static int map_read(wc_tls_result result, size_t *amount) {
     if (result == WC_TLS_OK) {
@@ -30,6 +41,7 @@ static ssize_t tls_read(wc_transport *transport, void *buffer, size_t len) {
     tls_transport_state *state = transport->state;
     if (!state->handshaken) {
         wc_tls_result result = wc_tls_handshake(state->conn);
+        state->blocked = blocked_from(result);
         if (result == WC_TLS_WANT_READ || result == WC_TLS_WANT_WRITE) {
             errno = EAGAIN;
             return -1;
@@ -39,9 +51,11 @@ static ssize_t tls_read(wc_transport *transport, void *buffer, size_t len) {
             return -1;
         }
         state->handshaken = true;
+        state->blocked = 0;
     }
     size_t amount = 0;
     wc_tls_result result = wc_tls_read(state->conn, buffer, len, &amount);
+    state->blocked = blocked_from(result);
     if (result == WC_TLS_OK) {
         return (ssize_t)amount;
     }
@@ -58,14 +72,20 @@ static ssize_t tls_writev(wc_transport *transport, const struct iovec *iov, int 
     for (int i = 0; i < iov_count; i++) {
         size_t amount = 0;
         wc_tls_result result = wc_tls_write(state->conn, iov[i].iov_base, iov[i].iov_len, &amount);
+        state->blocked = blocked_from(result);
         total += amount;
         if (result == WC_TLS_OK) {
+            if (amount < iov[i].iov_len) {
+                /* Partial record write: report a short write so the caller
+                 * retries the remainder of this iovec, POSIX writev style. */
+                return (ssize_t)total;
+            }
             continue;
         }
-        if ((result == WC_TLS_WANT_READ || result == WC_TLS_WANT_WRITE) && total > 0) {
-            return (ssize_t)total;
-        }
         if (result == WC_TLS_WANT_READ || result == WC_TLS_WANT_WRITE) {
+            if (total > 0) {
+                return (ssize_t)total;
+            }
             errno = EAGAIN;
             return -1;
         }
@@ -98,8 +118,13 @@ static const char *tls_alpn(wc_transport *transport) {
     return state != NULL ? wc_tls_alpn(state->conn) : NULL;
 }
 
+static uint32_t tls_blocked_on(wc_transport *transport) {
+    tls_transport_state *state = transport->state;
+    return state != NULL ? state->blocked : 0;
+}
+
 static const wc_transport_ops TLS_OPS = {
-    tls_read, tls_writev, tls_flush, tls_alpn, tls_close,
+    tls_read, tls_writev, tls_flush, tls_alpn, tls_blocked_on, tls_close,
 };
 
 wc_transport *wc_tls_transport_new(void *context, int fd) {

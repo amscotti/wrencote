@@ -47,6 +47,8 @@ static int select_alpn(SSL *ssl, const unsigned char **out, unsigned char *out_l
         *out_len = 8;
         return SSL_TLSEXT_ERR_OK;
     }
+    /* No protocol overlap: RFC 7301 §3.2 requires a fatal
+     * no_application_protocol alert rather than continuing without ALPN. */
     return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
@@ -69,6 +71,16 @@ wc_status wc_tls_context_new(const char *cert_path, const char *key_path, wc_tls
         return WC_EINVAL;
     }
     SSL_CTX_set_options(context->ctx, SSL_OP_NO_COMPRESSION | SSL_OP_NO_RENEGOTIATION);
+    /* Partial writes may return short success; the moving-buffer mode lets a
+     * retry continue from a different pointer (the h2 output buffer shifts).
+     * Without it OpenSSL raises BAD_WRITE_RETRY and drops the connection. */
+    SSL_CTX_set_mode(context->ctx, SSL_MODE_ENABLE_PARTIAL_WRITE |
+                                       SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER |
+                                       SSL_MODE_RELEASE_BUFFERS);
+    /* No resumption is configured at the TLS 1.2 session-ID level, so keep the
+     * default session cache (about 20k sessions) from becoming a memory
+     * ceiling under handshake floods. TLS 1.3 tickets remain stateless. */
+    SSL_CTX_set_session_cache_mode(context->ctx, SSL_SESS_CACHE_OFF);
     SSL_CTX_set_alpn_select_cb(context->ctx, select_alpn, context);
     if (SSL_CTX_use_certificate_chain_file(context->ctx, cert_path) != 1 ||
         SSL_CTX_use_PrivateKey_file(context->ctx, key_path, SSL_FILETYPE_PEM) != 1 ||
