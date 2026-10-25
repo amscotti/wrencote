@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.jpg" alt="Wrencote" width="480">
+</p>
+
 # Wrencote
 
 Wrencote is a small embeddable HTTP runtime for the [Wren](https://wren.io) scripting language. Wren
