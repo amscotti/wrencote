@@ -1,0 +1,27 @@
+name: ci
+
+# Dormant until the repository is published. Local development uses scripts/ci-local.sh.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang clang-format clang-tidy cppcheck valgrind gcovr
+      - name: Configure
+        run: cmake --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}"
+      - name: Build
+        run: cmake --build --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}"
+      - name: Test
+        run: ctest --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}" --output-on-failure

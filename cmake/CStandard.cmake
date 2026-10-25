@@ -1,0 +1,13 @@
+# C23 where the compiler has the final spelling, C2x on older GCC.
+check_c_compiler_flag("-std=c23" WC_HAS_C23)
+if(WC_HAS_C23)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c23")
+else()
+    check_c_compiler_flag("-std=c2x" WC_HAS_C2X)
+    if(NOT WC_HAS_C2X)
+        message(FATAL_ERROR "Compiler supports neither -std=c23 nor -std=c2x")
+    endif()
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c2x")
+    message(WARNING "Compiler predates C23 spelling; using -std=c2x (C23 draft).")
+endif()
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_POSIX_C_SOURCE=200809L")

@@ -1,0 +1,25 @@
+[coverage]
+core_line_min = 85
+
+[performance]
+static_req_per_sec_min = 40000
+p99_latency_us_max = 1000
+binary_size_kib_max = 1536
+binary_size_kib_max_v02 = 2560
+
+[http2]
+req_per_sec_min = 25000
+slow_reader_p99_ratio_max = 2.0
+h2spec_version = "2.6.0"
+
+[soak]
+smoke_seconds = 60
+minutes = 10
+rss_growth_pct_max = 2
+
+[fuzz]
+pr_seconds = 60
+nightly_seconds = 600
+
+[build]
+clean_clone_seconds_max = 60

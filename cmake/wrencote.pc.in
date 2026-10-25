@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: wrencote
+Description: Embeddable Wren HTTP runtime
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lwrencote
+Libs.private: -lm
+Cflags: -I${includedir}
