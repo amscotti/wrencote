@@ -298,17 +298,44 @@ static void server_serve(WrenVM *vm) {
         abort_text(vm, "a handler is already installed");
         return;
     }
-    host->handler = wrenGetSlotHandle(vm, 1);
-    host->handler_call = wrenMakeCallHandle(vm, "call(_,_)");
-    wrenGetVariable(vm, "net", "Req", 0);
-    host->req_class = wrenGetSlotHandle(vm, 0);
-    wrenGetVariable(vm, "net", "Res", 0);
-    host->res_class = wrenGetSlotHandle(vm, 0);
-    if (host->handler == NULL || host->handler_call == NULL || host->req_class == NULL ||
-        host->res_class == NULL) {
+    WrenHandle *handler = wrenGetSlotHandle(vm, 1);
+    WrenHandle *handler_call = wrenMakeCallHandle(vm, "call(_,_)");
+    WrenHandle *req_class = NULL;
+    WrenHandle *res_class = NULL;
+    /* A module name with an embedded NUL can register under a length-aware key
+     * that the C-string lookup below cannot see; guard instead of asserting. */
+    if (wrenHasModule(vm, "net") && wrenHasVariable(vm, "net", "Req") &&
+        wrenHasVariable(vm, "net", "Res")) {
+        wrenGetVariable(vm, "net", "Req", 0);
+        req_class = wrenGetSlotHandle(vm, 0);
+        wrenGetVariable(vm, "net", "Res", 0);
+        res_class = wrenGetSlotHandle(vm, 0);
+    }
+    if (handler != NULL) {
+        wc_vm_track_handle(vm_state);
+    }
+    if (handler_call != NULL) {
+        wc_vm_track_handle(vm_state);
+    }
+    if (req_class != NULL) {
+        wc_vm_track_handle(vm_state);
+    }
+    if (res_class != NULL) {
+        wc_vm_track_handle(vm_state);
+    }
+    if (handler == NULL || handler_call == NULL || req_class == NULL || res_class == NULL) {
+        /* Roll back the partial install so the host is not wedged. */
+        wc_vm_release_handle(vm_state, handler);
+        wc_vm_release_handle(vm_state, handler_call);
+        wc_vm_release_handle(vm_state, req_class);
+        wc_vm_release_handle(vm_state, res_class);
         abort_text(vm, "could not install handler");
         return;
     }
+    host->handler = handler;
+    host->handler_call = handler_call;
+    host->req_class = req_class;
+    host->res_class = res_class;
     host->running = true;
 }
 

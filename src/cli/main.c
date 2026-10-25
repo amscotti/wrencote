@@ -21,6 +21,31 @@ typedef struct options {
     char **app_argv;
 } options;
 
+/* Reads the script before the sandbox is applied so it can live anywhere the
+ * operator can read, then wc_host_load_source runs it sandboxed. */
+static char *read_script_source(const char *path) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return NULL;
+    }
+    fseek(file, 0, SEEK_END);
+    long length = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    if (length < 0) {
+        fclose(file);
+        return NULL;
+    }
+    char *source = malloc((size_t)length + 1);
+    if (source == NULL) {
+        fclose(file);
+        return NULL;
+    }
+    size_t got = fread(source, 1, (size_t)length, file);
+    fclose(file);
+    source[got] = '\0';
+    return source;
+}
+
 static void usage(void) {
     printf("wrencote %s\n"
            "usage:\n"
@@ -145,15 +170,36 @@ static wc_status make_host(options *opt, wc_host **out) {
     return wc_host_new(&config, out);
 }
 
+/* Accepts HOST:PORT and [v6-host]:PORT. */
 static bool split_listen(const char *listen, char *host, size_t host_size, uint16_t *port) {
-    const char *colon = strrchr(listen, ':');
-    if (colon == NULL || (size_t)(colon - listen) >= host_size) {
-        return false;
+    const char *port_text = NULL;
+    size_t host_len = 0;
+    if (listen[0] == '[') {
+        const char *close = strchr(listen, ']');
+        if (close == NULL || close[1] != ':') {
+            return false;
+        }
+        host_len = (size_t)(close - listen) - 1;
+        port_text = close + 2;
+        if (host_len == 0 || host_len >= host_size) {
+            return false;
+        }
+        memcpy(host, listen + 1, host_len);
+    } else {
+        const char *colon = strrchr(listen, ':');
+        if (colon == NULL) {
+            return false;
+        }
+        host_len = (size_t)(colon - listen);
+        port_text = colon + 1;
+        if (host_len >= host_size) {
+            return false;
+        }
+        memcpy(host, listen, host_len);
     }
-    memcpy(host, listen, (size_t)(colon - listen));
-    host[colon - listen] = '\0';
+    host[host_len] = '\0';
     size_t value = 0;
-    if (!parse_size(colon + 1, &value) || value > 65535) {
+    if (!parse_size(port_text, &value) || value > 65535) {
         return false;
     }
     *port = (uint16_t)value;
@@ -219,19 +265,32 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    status = wc_host_load(host, opt.script);
+    char *script_source = NULL;
+    if (opt.sandbox) {
+        /* Read the entry script before the sandbox exists so it may live
+         * anywhere readable; its top level then runs under the sandbox. */
+        script_source = read_script_source(opt.script);
+        if (script_source == NULL) {
+            fprintf(stderr, "wrencote: could not read %s\n", opt.script);
+            wc_host_free(host);
+            return 1;
+        }
+    }
+    status = opt.sandbox ? wc_host_enable_sandbox(host)
+                         : WC_OK; /* sandbox before any script code runs */
+    if (status != WC_OK) {
+        fprintf(stderr, "wrencote: sandbox setup failed (%d)\n", (int)status);
+        free(script_source);
+        wc_host_free(host);
+        return 1;
+    }
+    status = script_source != NULL ? wc_host_load_source(host, "main", script_source)
+                                   : wc_host_load(host, opt.script);
+    free(script_source);
     if (status != WC_OK) {
         fprintf(stderr, "wrencote: %s\n", wc_host_last_error(host));
         wc_host_free(host);
         return 1;
-    }
-    if (opt.sandbox) {
-        status = wc_host_enable_sandbox(host);
-        if (status != WC_OK) {
-            fprintf(stderr, "wrencote: sandbox setup failed (%d)\n", (int)status);
-            wc_host_free(host);
-            return 1;
-        }
     }
     if (opt.no_listen) {
         wc_host_free(host);

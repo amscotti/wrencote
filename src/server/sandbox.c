@@ -58,13 +58,25 @@ static wc_status apply_landlock(wc_host *host) {
     return WC_OK;
 }
 
+/* Fail-closed: the arch check admits the build architecture only; on any other
+ * kernel every syscall returns EPERM rather than running unsandboxed. Adding an
+ * architecture requires auditing the allow list below against its syscall
+ * table (the __NR_* numbers differ per arch). */
+#if defined(__x86_64__)
+#define WC_AUDIT_ARCH AUDIT_ARCH_X86_64
+#elif defined(__aarch64__)
+#define WC_AUDIT_ARCH AUDIT_ARCH_AARCH64
+#else
+#error "wrencote sandbox: unsupported architecture"
+#endif
+
 #define ALLOW(nr)                                                                                  \
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
 
 static wc_status apply_seccomp(void) {
     struct sock_filter filter[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, WC_AUDIT_ARCH, 1, 0),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         ALLOW(__NR_read),
@@ -76,7 +88,11 @@ static wc_status apply_seccomp(void) {
         ALLOW(__NR_newfstatat),
         ALLOW(__NR_fstat),
         ALLOW(__NR_lseek),
+#ifdef __NR_readlink
         ALLOW(__NR_readlink),
+#else
+        ALLOW(__NR_readlinkat),
+#endif
         ALLOW(__NR_getdents64),
         ALLOW(__NR_dup),
         ALLOW(__NR_fcntl),
@@ -90,13 +106,21 @@ static wc_status apply_seccomp(void) {
         ALLOW(__NR_rt_sigreturn),
         ALLOW(__NR_clock_gettime),
         ALLOW(__NR_gettimeofday),
+#ifdef __NR_clock_nanosleep
+        ALLOW(__NR_clock_nanosleep),
+#endif
+#ifdef __NR_nanosleep
+        ALLOW(__NR_nanosleep),
+#endif
         ALLOW(__NR_futex),
         ALLOW(__NR_getpid),
         ALLOW(__NR_gettid),
         ALLOW(__NR_getrandom),
         ALLOW(__NR_epoll_create1),
         ALLOW(__NR_epoll_ctl),
+#ifdef __NR_epoll_wait
         ALLOW(__NR_epoll_wait),
+#endif
         ALLOW(__NR_epoll_pwait),
         ALLOW(__NR_eventfd2),
         ALLOW(__NR_signalfd4),
@@ -104,6 +128,7 @@ static wc_status apply_seccomp(void) {
         ALLOW(__NR_bind),
         ALLOW(__NR_listen),
         ALLOW(__NR_getsockname),
+        ALLOW(__NR_getsockopt),
         ALLOW(__NR_setsockopt),
         ALLOW(__NR_recvfrom),
         ALLOW(__NR_sendto),

@@ -21,6 +21,7 @@ void *wc_vm_realloc(void *memory, size_t new_size, void *user_data) {
             }
             free(header);
         }
+        vm->over_budget = vm->heap_used > vm->heap_limit;
         return NULL;
     }
 
@@ -32,7 +33,8 @@ void *wc_vm_realloc(void *memory, size_t new_size, void *user_data) {
     }
     size_t base = vm->heap_used >= old_size ? vm->heap_used - old_size : 0;
     /* Wren does not propagate allocator failure: returning NULL here corrupts
-     * the VM. The budget is advisory; the hard limit is process-level. */
+     * the VM. The budget is advisory at this level; the host rejects requests
+     * while the live heap is over the limit. */
     if (new_size > vm->heap_limit || base > vm->heap_limit - new_size) {
         vm->over_budget = true;
     }
@@ -47,5 +49,8 @@ void *wc_vm_realloc(void *memory, size_t new_size, void *user_data) {
     if (vm->heap_used > vm->heap_peak) {
         vm->heap_peak = vm->heap_used;
     }
+    /* Live predicate, not a latch: the host may serve requests again once the
+     * heap is back under the limit. */
+    vm->over_budget = vm->heap_used > vm->heap_limit;
     return grown + 1;
 }

@@ -1,5 +1,6 @@
 #include "modules/sys.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -53,7 +54,16 @@ static void sys_sleep(WrenVM *vm) {
         .tv_nsec =
             (long)((milliseconds - (double)(time_t)(milliseconds / 1000.0) * 1000.0) * 1000000.0),
     };
-    (void)nanosleep(&delay, NULL);
+    /* Retry on EINTR with the remaining time; surface any other failure
+     * instead of silently not sleeping. */
+    struct timespec remaining = delay;
+    while (nanosleep(&remaining, &remaining) != 0) {
+        if (errno != EINTR) {
+            wrenSetSlotString(vm, 0, "Sys.sleep: sleep failed");
+            wrenAbortFiber(vm, 0);
+            return;
+        }
+    }
 }
 
 static void sys_exit(WrenVM *vm) {

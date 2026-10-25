@@ -44,6 +44,17 @@ static void invoke_handler(wc_host *host, const wc_http_request *request,
         wc_http_response_send(response, 503, "no handler\n", 11);
         return;
     }
+    /* The heap budget is advisory at the allocator level; act on it here so a
+     * runaway handler stops consuming requests until the GC brings the heap
+     * back under the limit. */
+    if (wc_vm_over_budget(host->vm)) {
+        wc_vm_collect(host->vm);
+    }
+    if (wc_vm_over_budget(host->vm)) {
+        (void)wc_http_response_set_header(response, "retry-after", 11, "1", 1);
+        wc_http_response_send(response, 503, "heap budget exceeded\n", 21);
+        return;
+    }
     WrenVM *vm = wc_vm_raw(host->vm);
     wrenEnsureSlots(vm, 5);
     wrenSetSlotHandle(vm, 0, host->handler);
@@ -176,6 +187,14 @@ wc_status wc_host_new(const wc_host_config *config, wc_host **out) {
         wc_mem_free(host);
         return status;
     }
+    if (wc_vm_over_budget(host->vm)) {
+        /* The VM baseline alone exceeds the configured budget; every request
+         * would be rejected forever. Fail at startup instead. */
+        wc_vm_free(host->vm);
+        wc_loop_free(host->loop);
+        wc_mem_free(host);
+        return WC_EINVAL;
+    }
 
     *out = host;
     return WC_OK;
@@ -183,6 +202,7 @@ wc_status wc_host_new(const wc_host_config *config, wc_host **out) {
 
 static wc_status host_serve_internal(wc_host *host, const char *bind_addr, uint16_t port,
                                      wc_tls_context *tls) {
+    (void)tls;
     if (host == NULL) {
         return WC_EINVAL;
     }
@@ -197,8 +217,10 @@ static wc_status host_serve_internal(wc_host *host, const char *bind_addr, uint1
         .keepalive_requests = 1000,
         .idle_timeout_ms = 5000,
         .request_timeout_ms = 10000,
+#ifdef WC_ENABLE_TLS
         .transport_factory = tls == NULL ? NULL : wc_tls_transport_new,
         .transport_user = tls,
+#endif
         .h2_handler = host_h2_handler,
         .h2_user = host,
     };
@@ -253,6 +275,9 @@ uint16_t wc_host_local_port(const wc_host *host) {
     return host == NULL ? 0 : wc_http_server_port(host->server);
 }
 
+/* Reads an embedded script without the sandbox applied yet. Keeping this
+ * separate would allow sandbox-before-execute; see GAPS G21 for the current
+ * load-then-sandbox ordering. */
 static wc_status read_script(const char *script_path, char **out) {
     FILE *file = fopen(script_path, "rb");
     if (file == NULL) {
@@ -317,6 +342,13 @@ wc_status wc_host_load(wc_host *host, const char *script_path) {
     return status;
 }
 
+wc_status wc_host_load_source(wc_host *host, const char *module, const char *source) {
+    if (host == NULL || source == NULL) {
+        return WC_EINVAL;
+    }
+    return wc_vm_interpret(host->vm, module == NULL ? "main" : module, source);
+}
+
 wc_status wc_host_run(wc_host *host) {
     if (host == NULL) {
         return WC_EINVAL;
@@ -343,7 +375,9 @@ void wc_host_free(wc_host *host) {
         host->server = NULL;
     }
     if (host->tls != NULL) {
+#ifdef WC_ENABLE_TLS
         wc_tls_context_free(host->tls);
+#endif
         host->tls = NULL;
     }
     if (host->handler != NULL) {

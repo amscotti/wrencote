@@ -67,11 +67,15 @@ wc_status wc_vm_call(wc_vm *vm, WrenHandle *method);
 
 WrenHandle *wc_vm_make_call_handle(wc_vm *vm, const char *signature);
 void wc_vm_release_handle(wc_vm *vm, WrenHandle *handle);
+/* Registers a handle created through the raw Wren API with the handle count. */
+void wc_vm_track_handle(wc_vm *vm);
 size_t wc_vm_handle_count(const wc_vm *vm);
 
 size_t wc_vm_heap_used(const wc_vm *vm);
 size_t wc_vm_heap_peak(const wc_vm *vm);
 bool wc_vm_over_budget(const wc_vm *vm);
+/* Forces a collection; used before rejecting requests over the heap budget. */
+void wc_vm_collect(wc_vm *vm);
 const char *wc_vm_last_error(const wc_vm *vm);
 void *wc_vm_bind_user(const wc_vm *vm);
 void wc_vm_set_runtime(wc_vm *vm, int fs_root_fd, int64_t start_ns);

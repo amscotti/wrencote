@@ -42,8 +42,14 @@ WC_API void wc_host_config_init(wc_host_config *config);
 /** Creates a host. Returns WC_EINVAL for a bad config, WC_ENOMEM on failure. */
 WC_API wc_status wc_host_new(const wc_host_config *config, wc_host **out);
 
-/** Loads and runs a script's top level. Module imports are capability-checked. */
+/** Loads and runs a script's top level. Module imports are capability-checked.
+ * Reads the script before executing it; embedders that enable the sandbox
+ * should read the source themselves and use wc_host_load_source instead. */
 WC_API wc_status wc_host_load(wc_host *host, const char *script_path);
+
+/** Runs in-memory source as [module] ("main" when NULL). Because no file is
+ * read, the sandbox can be enabled before any script code executes. */
+WC_API wc_status wc_host_load_source(wc_host *host, const char *module, const char *source);
 
 /** Binds a listener. Call before wc_host_load so the script can install its handler.
  * Pass port 0 for an ephemeral port; read it with wc_host_local_port. */
@@ -66,7 +72,8 @@ WC_API const char *wc_host_last_error(const wc_host *host);
 WC_API wc_status wc_host_set_args(wc_host *host, int argc, const char *const *argv);
 
 /** Applies Landlock filesystem scope and a seccomp syscall allowlist to this process.
- * Call after loading the script and before wc_host_run. */
+ * Call after binding the listener and before running any script code
+ * (wc_host_load_source) so the top level is sandboxed too. */
 WC_API wc_status wc_host_enable_sandbox(wc_host *host);
 
 /** Runs the event loop until wc_host_stop. */

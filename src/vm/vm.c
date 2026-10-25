@@ -24,16 +24,17 @@ static void write_fn(WrenVM *wren, const char *text) {
 static void error_fn(WrenVM *wren, WrenErrorType type, const char *module, int line,
                      const char *message) {
     wc_vm *vm = wrenGetUserData(wren);
+    const char *safe_module = module == NULL ? "?" : module;
+    const char *safe_message = message == NULL ? "unknown error" : message;
     if (type == WREN_ERROR_COMPILE) {
-        snprintf(vm->last_error, sizeof vm->last_error, "%s:%d: %s", module == NULL ? "?" : module,
-                 line, message);
+        snprintf(vm->last_error, sizeof vm->last_error, "%s:%d: %s", safe_module, line,
+                 safe_message);
     } else if (type == WREN_ERROR_RUNTIME) {
-        snprintf(vm->last_error, sizeof vm->last_error, "%s", message);
+        snprintf(vm->last_error, sizeof vm->last_error, "%s", safe_message);
     } else {
         if (vm->log != NULL) {
             char trace[WC_VM_ERROR_MAX];
-            snprintf(trace, sizeof trace, "  at %s:%d in %s", module == NULL ? "?" : module, line,
-                     message);
+            snprintf(trace, sizeof trace, "  at %s:%d in %s", safe_module, line, safe_message);
             vm->log(vm->log_user, 0, trace, strlen(trace));
         }
         return;
@@ -113,6 +114,7 @@ wc_status wc_vm_interpret(wc_vm *vm, const char *module, const char *source) {
     if (vm == NULL || module == NULL || source == NULL) {
         return WC_EINVAL;
     }
+    vm->denied = false;
     vm->depth++;
     WrenInterpretResult result = wrenInterpret(vm->vm, module, source);
     vm->depth--;
@@ -148,7 +150,21 @@ void wc_vm_release_handle(wc_vm *vm, WrenHandle *handle) {
         return;
     }
     wrenReleaseHandle(vm->vm, handle);
-    vm->handle_count--;
+    if (vm->handle_count > 0) {
+        vm->handle_count--;
+    }
+}
+
+void wc_vm_track_handle(wc_vm *vm) {
+    if (vm != NULL) {
+        vm->handle_count++;
+    }
+}
+
+void wc_vm_collect(wc_vm *vm) {
+    if (vm != NULL && vm->vm != NULL) {
+        wrenCollectGarbage(vm->vm);
+    }
 }
 
 size_t wc_vm_handle_count(const wc_vm *vm) {
@@ -161,7 +177,8 @@ size_t wc_vm_heap_peak(const wc_vm *vm) {
     return vm == NULL ? 0 : vm->heap_peak;
 }
 bool wc_vm_over_budget(const wc_vm *vm) {
-    return vm != NULL && vm->over_budget;
+    /* Derived from the live heap so frees and GC always clear it. */
+    return vm != NULL && vm->heap_used > vm->heap_limit;
 }
 
 const char *wc_vm_last_error(const wc_vm *vm) {

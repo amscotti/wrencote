@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/mem.h"
 #include "vm/stdlib.h"
 #include "vm/vm.h"
 
 #define WC_MODULE_UNKNOWN (-1)
+#define WC_MODULE_MAX_BYTES (1024u * 1024u)
 
 static const char TEST_SOURCE[] = "foreign class Echo {\n"
                                   "  construct new(seed) {}\n"
@@ -130,7 +132,7 @@ static const char *builtin_source(const char *name) {
 static void module_complete(WrenVM *wren, const char *name, WrenLoadModuleResult result) {
     (void)wren;
     (void)name;
-    free(result.userData);
+    wc_mem_free(result.userData);
 }
 
 static const char *resolve_module(WrenVM *wren, const char *importer, const char *name) {
@@ -139,13 +141,32 @@ static const char *resolve_module(WrenVM *wren, const char *importer, const char
     return name;
 }
 
+/* A loadable module name is a single path segment: no separators, no parent
+ * references, no leading dot. This keeps the flat module_path stub from
+ * becoming a traversal primitive; the rooted loader (GAPS G5) replaces it. */
+static bool module_name_safe(const char *name) {
+    if (name == NULL || name[0] == '\0' || name[0] == '.') {
+        return false;
+    }
+    for (const char *p = name; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '/' || c == '\\' || c == ':') {
+            return false;
+        }
+    }
+    if (strcmp(name, "..") == 0) {
+        return false;
+    }
+    return true;
+}
+
 static WrenLoadModuleResult load_module(WrenVM *wren, const char *name) {
     wc_vm *vm = wrenGetUserData(wren);
     WrenLoadModuleResult result = {NULL, NULL, NULL};
 
     int capability = module_capability(name);
     if (capability == WC_MODULE_UNKNOWN) {
-        if (vm->module_path != NULL) {
+        if (vm->module_path != NULL && module_name_safe(name)) {
             char path[512];
             int written = snprintf(path, sizeof path, "%s/%s.wren", vm->module_path, name);
             if (written > 0 && (size_t)written < sizeof path) {
@@ -154,16 +175,19 @@ static WrenLoadModuleResult load_module(WrenVM *wren, const char *name) {
                     fseek(file, 0, SEEK_END);
                     long length = ftell(file);
                     fseek(file, 0, SEEK_SET);
-                    if (length >= 0) {
-                        char *source = malloc((size_t)length + 1);
+                    if (length >= 0 && length <= (long)WC_MODULE_MAX_BYTES) {
+                        char *source = wc_mem_malloc((size_t)length + 1);
                         if (source != NULL) {
                             size_t got = fread(source, 1, (size_t)length, file);
-                            source[got] = '\0';
-                            result.source = source;
-                            result.userData = source;
-                            result.onComplete = module_complete;
-                            fclose(file);
-                            return result;
+                            if (got == (size_t)length && ferror(file) == 0) {
+                                source[got] = '\0';
+                                result.source = source;
+                                result.userData = source;
+                                result.onComplete = module_complete;
+                                fclose(file);
+                                return result;
+                            }
+                            wc_mem_free(source);
                         }
                     }
                     fclose(file);

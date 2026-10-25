@@ -62,6 +62,17 @@ int main(void) {
     assert(wc_vm_heap_peak(budget) > 128 * 1024);
     wc_vm_free(budget);
 
+    /* The predicate is live, not a latch: freeing above-limit memory clears it
+     * (the host 503 gate would otherwise wedge permanently). */
+    wc_vm *probe = make_vm(1024 * 1024, 0);
+    assert(!wc_vm_over_budget(probe));
+    void *block = wc_vm_realloc(NULL, 2 * 1024 * 1024, probe);
+    assert(block != NULL);
+    assert(wc_vm_over_budget(probe));
+    (void)wc_vm_realloc(block, 0, probe);
+    assert(!wc_vm_over_budget(probe));
+    wc_vm_free(probe);
+
     wc_vm_config disk_config = {0};
     disk_config.heap_bytes = 1024 * 1024;
     disk_config.module_path = "tests/data/mods";
