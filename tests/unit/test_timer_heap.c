@@ -32,6 +32,10 @@ int main(void) {
     assert(wc_timer_heap_push(&heap, &third) == WC_OK);
     assert(wc_timer_heap_next_deadline(&heap) == 10);
 
+    /* Double insertion must be rejected, not corrupt the heap. */
+    assert(wc_timer_heap_push(&heap, &first) == WC_EBUSY);
+    assert(wc_timer_heap_next_deadline(&heap) == 10);
+
     wc_timer *popped = wc_timer_heap_pop(&heap);
     assert(popped == &second);
     assert(!second.active && second.heap == NULL);

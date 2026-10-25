@@ -10,6 +10,10 @@ int main(void) {
     assert(wc_loop_watch_signal(loop, SIGUSR1) == WC_OK);
     assert(wc_loop_watch_signal(loop, SIGUSR1) == WC_OK);
     assert(wc_loop_watch_signal(loop, -1) == WC_EINVAL);
+    assert(wc_loop_watch_signal(loop, 0) == WC_EINVAL);
+    assert(wc_loop_watch_signal(loop, 1000) == WC_EINVAL);
+    assert(wc_loop_watch_signal(loop, SIGKILL) == WC_EINVAL);
+    assert(wc_loop_watch_signal(loop, SIGSTOP) == WC_EINVAL);
     assert(raise(SIGUSR1) == 0);
     assert(wc_loop_run_once(loop, 1000) == WC_OK);
     assert(wc_loop_stopped(loop));

@@ -65,6 +65,10 @@ WC_NODISCARD wc_status wc_timer_heap_push(wc_timer_heap *heap, wc_timer *timer) 
     if (heap == NULL || timer == NULL) {
         return WC_EINVAL;
     }
+    if (timer->active || timer->heap != NULL) {
+        /* Already in a heap; a second push would corrupt both. */
+        return WC_EBUSY;
+    }
     if (heap->len == heap->cap) {
         size_t cap = heap->cap == 0 ? 16 : heap->cap * 2;
         wc_timer **items = wc_mem_realloc(heap->items, cap * sizeof *items);
@@ -99,7 +103,8 @@ wc_timer *wc_timer_heap_pop(wc_timer_heap *heap) {
 }
 
 void wc_timer_heap_remove(wc_timer_heap *heap, wc_timer *timer) {
-    if (heap == NULL || timer == NULL || !timer->active || timer->index >= heap->len) {
+    if (heap == NULL || timer == NULL || !timer->active || timer->heap != heap ||
+        timer->index >= heap->len) {
         return;
     }
     size_t index = timer->index;

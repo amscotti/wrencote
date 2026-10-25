@@ -26,13 +26,13 @@ int main(void) {
     assert(write(fds[1], "x", 1) == 1);
     int count = wc_poll_wait(poll, &event, 1, 100);
     assert(count == 1);
-    assert(event.fd == 7);
+    assert(event.token == 7);
     assert((event.events & WC_EV_READ) != 0);
 
     assert(wc_poll_mod(poll, fds[0], WC_EV_WRITE, 9) == WC_OK);
     count = wc_poll_wait(poll, &event, 1, 100);
     assert(count == 1);
-    assert(event.fd == 9);
+    assert(event.token == 9);
     assert((event.events & WC_EV_WRITE) != 0);
 
     assert(wc_poll_del(poll, fds[0]) == WC_OK);

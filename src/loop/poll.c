@@ -90,7 +90,7 @@ int wc_poll_wait(wc_poll *poll, wc_poll_event *events, int max_events, int timeo
         return errno == EINTR ? 0 : -1;
     }
     for (int i = 0; i < count; i++) {
-        events[i].fd = (int)native[i].data.u32;
+        events[i].token = native[i].data.u32;
         events[i].events = 0;
         if ((native[i].events & (EPOLLIN | EPOLLHUP | EPOLLERR)) != 0) {
             events[i].events |= WC_EV_READ;

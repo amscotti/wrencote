@@ -11,8 +11,11 @@
 
 typedef struct wc_poll wc_poll;
 
+/* [token] is the opaque registration id passed to wc_poll_add/mod; the backend
+ * returns it unchanged so callers can detect events for registrations that
+ * have since been removed. It is not a file descriptor. */
 typedef struct wc_poll_event {
-    int fd;
+    uint32_t token;
     uint32_t events;
 } wc_poll_event;
 

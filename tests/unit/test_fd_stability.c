@@ -23,6 +23,14 @@ static void noop(wc_loop *loop, int fd, uint32_t events, void *user) {
     (void)user;
 }
 
+static void counting(wc_loop *loop, int fd, uint32_t events, void *user) {
+    (void)loop;
+    (void)fd;
+    (void)events;
+    int *fired = user;
+    (*fired)++;
+}
+
 int main(void) {
     int fds[2];
     assert(pipe(fds) == 0);
@@ -40,7 +48,19 @@ int main(void) {
         assert(wc_loop_add_fd(loop, fds[0], WC_EV_READ, noop, NULL) == WC_OK);
         assert(wc_loop_del_fd(loop, fds[0]) == WC_OK);
     }
-    assert(wc_loop_active_fds(loop) == 1);
+    /* Cross the token generation wrap boundary: a reused slot must still
+     * receive events afterwards. */
+    for (uint32_t i = 0; i < (1u << 20) + 2; i++) {
+        assert(wc_loop_add_fd(loop, fds[0], WC_EV_READ, noop, NULL) == WC_OK);
+        assert(wc_loop_del_fd(loop, fds[0]) == WC_OK);
+    }
+    int fired = 0;
+    assert(wc_loop_add_fd(loop, fds[0], WC_EV_READ, counting, &fired) == WC_OK);
+    assert(write(fds[1], "x", 1) == 1);
+    assert(wc_loop_run_once(loop, 100) == WC_OK);
+    assert(fired == 1);
+    assert(wc_loop_active_fds(loop) == 2);
+    assert(wc_loop_del_fd(loop, fds[0]) == WC_OK);
     int after = count_fds();
     assert(before == after);
     close(fds[0]);

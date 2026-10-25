@@ -17,10 +17,19 @@
 
 #define WC_LOOP_SLOT_MAX 1024
 #define WC_LOOP_SIGNAL_MAX 8
+/* Poll tokens pack a per-slot generation above the slot index. A stale event
+ * carries the token of the registration it was queued for; comparing tokens
+ * (rather than raw generations) keeps wrap-around from ever deafening a slot. */
+#define WC_LOOP_INDEX_BITS 12
+#define WC_LOOP_INDEX_MASK ((1u << WC_LOOP_INDEX_BITS) - 1u)
+#define WC_LOOP_GENERATION_MASK (UINT32_MAX >> WC_LOOP_INDEX_BITS)
+_Static_assert(WC_LOOP_SLOT_MAX <= (1u << WC_LOOP_INDEX_BITS), "slot index must fit in token");
 
 typedef struct wc_fd_slot {
     int fd;
     uint32_t events;
+    uint32_t token;
+    uint32_t generation;
     wc_loop_fd_fn fn;
     void *user;
     bool active;
@@ -90,6 +99,11 @@ static int find_slot(wc_loop *loop, int fd) {
         }
     }
     return -1;
+}
+
+static uint32_t slot_token(wc_fd_slot *slot, size_t index) {
+    return ((slot->generation & WC_LOOP_GENERATION_MASK) << WC_LOOP_INDEX_BITS) |
+           (uint32_t)(index & WC_LOOP_INDEX_MASK);
 }
 
 wc_loop *wc_loop_new(const wc_clock *clock) {
@@ -166,12 +180,14 @@ WC_NODISCARD wc_status wc_loop_add_fd(wc_loop *loop, int fd, uint32_t events, wc
         }
         loop->slot_count++;
     }
-    wc_status status = wc_poll_add(loop->poll, fd, events, (uint32_t)index);
+    uint32_t token = slot_token(&loop->slots[index], (size_t)index);
+    wc_status status = wc_poll_add(loop->poll, fd, events, token);
     if (status != WC_OK) {
         return status;
     }
     loop->slots[index].fd = fd;
     loop->slots[index].events = events;
+    loop->slots[index].token = token;
     loop->slots[index].fn = fn;
     loop->slots[index].user = user;
     loop->slots[index].active = true;
@@ -188,6 +204,7 @@ WC_NODISCARD wc_status wc_loop_del_fd(wc_loop *loop, int fd) {
     }
     wc_status status = wc_poll_del(loop->poll, fd);
     loop->slots[index].active = false;
+    loop->slots[index].generation++;
     return status;
 }
 
@@ -199,7 +216,7 @@ WC_NODISCARD wc_status wc_loop_mod_fd(wc_loop *loop, int fd, uint32_t events) {
     if (index < 0) {
         return WC_ENOENT;
     }
-    wc_status status = wc_poll_mod(loop->poll, fd, events, (uint32_t)index);
+    wc_status status = wc_poll_mod(loop->poll, fd, events, loop->slots[index].token);
     if (status == WC_OK) {
         loop->slots[index].events = events;
     }
@@ -209,6 +226,14 @@ WC_NODISCARD wc_status wc_loop_mod_fd(wc_loop *loop, int fd, uint32_t events) {
 WC_NODISCARD wc_status wc_loop_defer(wc_loop *loop, wc_loop_task task, void *user) {
     if (loop == NULL || task == NULL) {
         return WC_EINVAL;
+    }
+    /* Wake before queuing: on failure the task was never queued, so the
+     * caller may free its state. An EAGAIN here means a wake is already
+     * pending, which still guarantees the task is picked up. */
+    uint64_t value = 1;
+    ssize_t written = write(loop->wake_fd, &value, sizeof value);
+    if (written < 0 && errno != EAGAIN) {
+        return WC_EIO;
     }
     if (loop->task_len == loop->task_cap) {
         size_t cap = loop->task_cap == 0 ? 16 : loop->task_cap * 2;
@@ -222,10 +247,6 @@ WC_NODISCARD wc_status wc_loop_defer(wc_loop *loop, wc_loop_task task, void *use
     loop->tasks[loop->task_len].fn = task;
     loop->tasks[loop->task_len].user = user;
     loop->task_len++;
-    uint64_t value = 1;
-    if (write(loop->wake_fd, &value, sizeof value) < 0) {
-        return WC_EIO;
-    }
     return WC_OK;
 }
 
@@ -264,8 +285,9 @@ WC_NODISCARD wc_status wc_loop_run_once(wc_loop *loop, int timeout_ms) {
         return WC_EIO;
     }
     for (int i = 0; i < count; i++) {
-        size_t index = (size_t)events[i].fd;
-        if (index >= loop->slot_count || !loop->slots[index].active) {
+        size_t index = events[i].token & WC_LOOP_INDEX_MASK;
+        if (index >= loop->slot_count || !loop->slots[index].active ||
+            events[i].token != loop->slots[index].token) {
             continue;
         }
         wc_fd_slot *slot = &loop->slots[index];
@@ -346,9 +368,17 @@ wc_status wc_timer_reschedule(wc_timer *timer, int64_t deadline_ns) {
         return WC_EINVAL;
     }
     wc_timer_heap *heap = timer->heap;
+    int64_t previous = timer->deadline_ns;
     wc_timer_heap_remove(heap, timer);
     timer->deadline_ns = deadline_ns;
-    return wc_timer_heap_push(heap, timer);
+    wc_status status = wc_timer_heap_push(heap, timer);
+    if (status != WC_OK) {
+        /* Do not orphan the timer: restore the previous deadline so the
+         * callback still fires (late is better than never). */
+        timer->deadline_ns = previous;
+        (void)wc_timer_heap_push(heap, timer);
+    }
+    return status;
 }
 
 void wc_timer_cancel(wc_timer *timer) {
@@ -362,7 +392,7 @@ void wc_timer_cancel(wc_timer *timer) {
 }
 
 WC_NODISCARD wc_status wc_loop_watch_signal(wc_loop *loop, int signum) {
-    if (loop == NULL || signum <= 0 || loop->signal_count >= WC_LOOP_SIGNAL_MAX) {
+    if (loop == NULL || signum <= 0 || signum >= NSIG || signum == SIGKILL || signum == SIGSTOP) {
         return WC_EINVAL;
     }
     for (size_t i = 0; i < loop->signal_count; i++) {
@@ -370,25 +400,45 @@ WC_NODISCARD wc_status wc_loop_watch_signal(wc_loop *loop, int signum) {
             return WC_OK;
         }
     }
+    if (loop->signal_count >= WC_LOOP_SIGNAL_MAX) {
+        return WC_ENOSPC;
+    }
     sigset_t set;
     sigemptyset(&set);
-    sigaddset(&set, signum);
+    if (sigaddset(&set, signum) != 0) {
+        return WC_EINVAL;
+    }
+    sigset_t mask;
+    sigemptyset(&mask);
+    if (sigaddset(&mask, signum) != 0) {
+        return WC_EINVAL;
+    }
+    for (size_t i = 0; i < loop->signal_count; i++) {
+        (void)sigaddset(&mask, loop->signals[i]);
+    }
     if (sigprocmask(SIG_BLOCK, &set, NULL) != 0) {
         return WC_EIO;
     }
-    loop->signals[loop->signal_count++] = signum;
-
-    sigset_t mask;
-    sigemptyset(&mask);
-    for (size_t i = 0; i < loop->signal_count; i++) {
-        sigaddset(&mask, loop->signals[i]);
-    }
     if (loop->signal_fd < 0) {
         loop->signal_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+        if (loop->signal_fd >= 0) {
+            wc_status status =
+                wc_loop_add_fd(loop, loop->signal_fd, WC_EV_READ, signal_callback, loop);
+            if (status != WC_OK) {
+                close(loop->signal_fd);
+                loop->signal_fd = -1;
+            }
+        }
         if (loop->signal_fd < 0) {
+            (void)sigprocmask(SIG_UNBLOCK, &set, NULL);
             return WC_EIO;
         }
-        return wc_loop_add_fd(loop, loop->signal_fd, WC_EV_READ, signal_callback, loop);
+    } else if (signalfd(loop->signal_fd, &mask, 0) < 0) {
+        /* Updating the existing signalfd failed: do not leave the signal
+         * blocked and recorded as watched. */
+        (void)sigprocmask(SIG_UNBLOCK, &set, NULL);
+        return WC_EIO;
     }
-    return signalfd(loop->signal_fd, &mask, 0) < 0 ? WC_EIO : WC_OK;
+    loop->signals[loop->signal_count++] = signum;
+    return WC_OK;
 }

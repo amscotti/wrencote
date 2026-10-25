@@ -30,9 +30,8 @@ static const char *plain_alpn(wc_transport *transport) {
 }
 
 static const wc_transport_ops PLAIN_OPS = {
-    plain_read, plain_writev, plain_flush, plain_alpn, plain_close,
+    plain_read, plain_writev, plain_flush, plain_alpn, NULL, plain_close,
 };
-
 wc_transport *wc_transport_plain_new(int fd) {
     if (fd < 0) {
         return NULL;
@@ -76,6 +75,13 @@ const char *wc_transport_alpn(wc_transport *transport) {
         return NULL;
     }
     return transport->ops->alpn(transport);
+}
+
+uint32_t wc_transport_blocked_on(wc_transport *transport) {
+    if (transport == NULL || transport->ops == NULL || transport->ops->blocked_on == NULL) {
+        return 0;
+    }
+    return transport->ops->blocked_on(transport);
 }
 
 wc_status wc_transport_flush(wc_transport *transport) {
