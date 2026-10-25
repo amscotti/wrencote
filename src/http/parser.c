@@ -127,7 +127,10 @@ wc_http_parse_result wc_http_parse_request_limit(const char *data, size_t len,
     if (target.len == 0 || target.data[0] != '/') {
         return WC_HTTP_PARSE_BAD;
     }
-    if (!view_equals_ci(version, "HTTP/1.1") && !view_equals_ci(version, "HTTP/1.0")) {
+    /* The protocol name and version are case-sensitive tokens. */
+    bool http11 = wc_str_eq(version, (wc_str){"HTTP/1.1", 8});
+    bool http10 = wc_str_eq(version, (wc_str){"HTTP/1.0", 8});
+    if (!http11 && !http10) {
         return WC_HTTP_PARSE_BAD;
     }
 
@@ -144,12 +147,13 @@ wc_http_parse_result wc_http_parse_request_limit(const char *data, size_t len,
     request->method = method;
     request->target = target;
     request->version = (wc_str){version.data, version.len};
-    request->keep_alive = view_equals_ci(version, "HTTP/1.1");
+    request->keep_alive = http11;
 
     size_t pos = line_len + 2;
     size_t content_length = 0;
     bool have_content_length = false;
     bool transfer_encoding = false;
+    size_t host_count = 0;
 
     while (pos < len) {
         const char *header_start = data + pos;
@@ -220,6 +224,10 @@ wc_http_parse_result wc_http_parse_request_limit(const char *data, size_t len,
                 start = end + 1;
             }
         } else if (view_equals_ci(name, "host")) {
+            /* RFC 7230 §5.4: exactly one valid Host field is required. */
+            if (host_count++ > 0 || value.len == 0) {
+                return WC_HTTP_PARSE_BAD;
+            }
             request->has_host = true;
         }
         pos = (size_t)(header_end - data) + 2;
@@ -235,6 +243,13 @@ wc_http_parse_result wc_http_parse_request_limit(const char *data, size_t len,
         return WC_HTTP_PARSE_BAD;
     }
     if (transfer_encoding) {
+        return WC_HTTP_PARSE_BAD;
+    }
+    /* RFC 7230 §5.4: an HTTP/1.1 request without a Host header is a 400. */
+    if (http11 && !request->has_host) {
+        if (status != NULL) {
+            *status = 400;
+        }
         return WC_HTTP_PARSE_BAD;
     }
     if (content_length > max_body) {

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/mem.h"
 #include "http/limits.h"
 
 static const char *reason_phrase(int status) {
@@ -111,6 +112,7 @@ wc_status wc_http_response_send(wc_http_response *response, int status, const vo
     if (status < 100 || status > 599) {
         return WC_EINVAL;
     }
+#ifdef WC_ENABLE_HTTP2
     if (response->h2 != NULL) {
         wc_h2_header extra[64];
         size_t extra_count = 0;
@@ -153,6 +155,7 @@ wc_status wc_http_response_send(wc_http_response *response, int status, const vo
         }
         return h2_status;
     }
+#endif /* WC_ENABLE_HTTP2 */
     if (response->conn == NULL || response->conn->server == NULL) {
         return WC_EINVAL;
     }
@@ -171,16 +174,17 @@ wc_status wc_http_response_send(wc_http_response *response, int status, const vo
     if (result == WC_OK && !response->has_content_type) {
         result = wc_buf_append_cstr(&conn->out, "Content-Type: text/plain; charset=utf-8\r\n");
     }
-    if (result == WC_OK) {
+    bool body_allowed = status != 204 && status != 304;
+    bool no_content_length = status == 204 || status < 200;
+    bool head_request =
+        conn->request.method.len == 4 && memcmp(conn->request.method.data, "HEAD", 4) == 0;
+    if (result == WC_OK && !no_content_length) {
         result = wc_buf_appendf(&conn->out, "Content-Length: %zu\r\n", body_len);
     }
     if (result == WC_OK) {
         result = wc_buf_appendf(&conn->out, "Connection: %s\r\n\r\n",
                                 conn->closing ? "close" : "keep-alive");
     }
-    bool body_allowed = status != 204 && status != 304;
-    bool head_request =
-        conn->request.method.len == 4 && memcmp(conn->request.method.data, "HEAD", 4) == 0;
     if (result == WC_OK && body_allowed && body_len > 0 && !head_request) {
         result = wc_buf_append(&conn->out, body, body_len);
     }
@@ -208,7 +212,13 @@ static wc_status stream_chunk(wc_http_conn *conn, const void *data, size_t len) 
         wc_buf_clear(&conn->out);
         return status;
     }
-    return wc_http_conn_flush(conn) ? WC_OK : WC_EIO;
+    if (!wc_http_conn_flush(conn)) {
+        return WC_EIO;
+    }
+    /* Streaming is progress-based: a live SSE connection must not die at the
+     * original 120 s deadline while events are still flowing. */
+    wc_http_conn_extend_timeout(conn, 120000);
+    return WC_OK;
 }
 
 wc_status wc_http_response_stream_start(wc_http_response *response, int status,
@@ -236,7 +246,7 @@ wc_status wc_http_response_stream_start(wc_http_response *response, int status,
     if (result == WC_OK) {
         result = wc_buf_append_cstr(&conn->out, "Cache-Control: no-cache\r\n"
                                                 "Transfer-Encoding: chunked\r\n"
-                                                "Connection: keep-alive\r\n\r\n");
+                                                "Connection: close\r\n\r\n");
     }
     if (result != WC_OK) {
         wc_buf_clear(&conn->out);
@@ -266,7 +276,7 @@ wc_status wc_http_response_stream_write(wc_http_response *response, const char *
     if (strpbrk(event, "\r\n") != NULL || strpbrk(data, "\r\n") != NULL) {
         return WC_EINVAL;
     }
-    char *frame = malloc(event_len + data_len + 32);
+    char *frame = wc_mem_malloc(event_len + data_len + 32);
     if (frame == NULL) {
         return WC_ENOMEM;
     }
@@ -278,7 +288,7 @@ wc_status wc_http_response_stream_write(wc_http_response *response, const char *
     } else {
         result = stream_chunk(response->conn, frame, (size_t)frame_len);
     }
-    free(frame);
+    wc_mem_free(frame);
     return result;
 }
 
@@ -290,16 +300,18 @@ wc_status wc_http_response_stream_end(wc_http_response *response) {
     if (conn->out.len - conn->out_sent > 1024u * 1024u) {
         return WC_EOVERFLOW;
     }
+    /* Mark closing before the final flush: once the last chunk drains, the
+     * connection is closed by the flush path. If the flush hits EAGAIN the
+     * write interest keeps draining and the re-armed timer bounds the wait. */
+    conn->closing = true;
+    response->streaming = false;
     wc_status result = wc_buf_append_cstr(&conn->out, "0\r\n\r\n");
     if (result != WC_OK) {
         return result;
     }
     (void)wc_http_conn_flush(conn);
-    response->streaming = false;
-    conn->closing = true;
-    if (conn->timer != NULL) {
-        wc_timer_cancel(conn->timer);
-        conn->timer = NULL;
+    if (!conn->closed) {
+        wc_http_conn_extend_timeout(conn, conn->server->config.idle_timeout_ms);
     }
     return WC_OK;
 }

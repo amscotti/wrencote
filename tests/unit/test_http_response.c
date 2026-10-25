@@ -46,7 +46,8 @@ int main(void) {
     conn.closing = true;
     assert(wc_http_response_send(&response, 204, "", 0) == WC_OK);
     assert(contains(&conn.out, "204 No Content\r\n"));
-    assert(contains(&conn.out, "Content-Length: 0\r\n"));
+    /* RFC 9110 §8.6: 204 must not carry Content-Length. */
+    assert(!contains(&conn.out, "Content-Length:"));
     assert(contains(&conn.out, "Connection: close\r\n"));
     assert(!contains(&conn.out, "\r\n\r\nerror"));
 

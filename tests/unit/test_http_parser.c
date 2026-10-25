@@ -57,7 +57,7 @@ static void test_connection_rules(void) {
            WC_HTTP_PARSE_OK);
     assert(request.keep_alive);
 
-    const char *eleven_close = "GET / HTTP/1.1\r\nConnection: close\r\n\r\n";
+    const char *eleven_close = "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
     assert(wc_http_parse_request(eleven_close, strlen(eleven_close), &request, &status) ==
            WC_HTTP_PARSE_OK);
     assert(!request.keep_alive);
@@ -78,7 +78,7 @@ static void test_rejections(void) {
     assert(wc_http_parse_request(transfer, strlen(transfer), &request, &status) ==
            WC_HTTP_PARSE_BAD);
 
-    const char *big_body = "POST / HTTP/1.1\r\nContent-Length: 2000000\r\n\r\n";
+    const char *big_body = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2000000\r\n\r\n";
     assert(wc_http_parse_request(big_body, strlen(big_body), &request, &status) ==
            WC_HTTP_PARSE_BAD);
     assert(status == 413);
@@ -108,8 +108,8 @@ static void test_rejections(void) {
 static void test_header_limits(void) {
     char raw[40 * 1024];
     size_t pos = 0;
-    pos += (size_t)snprintf(raw + pos, sizeof raw - pos, "GET / HTTP/1.1\r\n");
-    for (int i = 0; i < 100; i++) {
+    pos += (size_t)snprintf(raw + pos, sizeof raw - pos, "GET / HTTP/1.1\r\nHost: x\r\n");
+    for (int i = 0; i < 99; i++) {
         pos += (size_t)snprintf(raw + pos, sizeof raw - pos, "X-%d: v\r\n", i);
     }
     pos += (size_t)snprintf(raw + pos, sizeof raw - pos, "\r\n");
@@ -119,7 +119,7 @@ static void test_header_limits(void) {
     assert(wc_http_parse_request(raw, pos, &request, &status) == WC_HTTP_PARSE_OK);
     assert(request.header_count == 100);
 
-    pos = (size_t)snprintf(raw, sizeof raw, "GET / HTTP/1.1\r\n");
+    pos = (size_t)snprintf(raw, sizeof raw, "GET / HTTP/1.1\r\nHost: x\r\n");
     for (int i = 0; i < 101; i++) {
         pos += (size_t)snprintf(raw + pos, sizeof raw - pos, "X-%d: v\r\n", i);
     }
@@ -141,11 +141,43 @@ static void test_oversized_head(void) {
     assert(status == 431);
 }
 
+static void test_host_and_version_rules(void) {
+    wc_http_request request;
+    int status = 0;
+
+    /* HTTP/1.1 without Host is a 400 (RFC 7230 §5.4). */
+    const char *no_host = "GET / HTTP/1.1\r\nX-Other: v\r\n\r\n";
+    assert(wc_http_parse_request(no_host, strlen(no_host), &request, &status) == WC_HTTP_PARSE_BAD);
+    assert(status == 400);
+
+    /* HTTP/1.0 without Host is allowed. */
+    const char *http10 = "GET / HTTP/1.0\r\n\r\n";
+    assert(wc_http_parse_request(http10, strlen(http10), &request, &status) == WC_HTTP_PARSE_OK);
+    assert(!request.keep_alive);
+
+    /* The version token is case-sensitive. */
+    const char *lowercase = "GET / http/1.1\r\nHost: x\r\n\r\n";
+    assert(wc_http_parse_request(lowercase, strlen(lowercase), &request, &status) ==
+           WC_HTTP_PARSE_BAD);
+    assert(status == 400);
+
+    /* Exactly one non-empty Host is allowed (RFC 7230 §5.4). */
+    const char *duplicate_host = "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n";
+    assert(wc_http_parse_request(duplicate_host, strlen(duplicate_host), &request, &status) ==
+           WC_HTTP_PARSE_BAD);
+    assert(status == 400);
+    const char *empty_host = "GET / HTTP/1.1\r\nHost:\r\n\r\n";
+    assert(wc_http_parse_request(empty_host, strlen(empty_host), &request, &status) ==
+           WC_HTTP_PARSE_BAD);
+    assert(status == 400);
+}
+
 int main(void) {
     test_basic();
     test_query_and_body();
     test_connection_rules();
     test_rejections();
+    test_host_and_version_rules();
     test_header_limits();
     test_oversized_head();
     return 0;

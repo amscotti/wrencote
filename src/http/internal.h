@@ -52,6 +52,9 @@ struct wc_http_conn {
     bool have_request;
     bool dispatched;
     bool closing;
+    /* Set by wc_http_conn_close; the struct itself is freed later (reap) so
+     * callbacks deeper in the call stack can still test liveness. */
+    bool closed;
 };
 
 struct wc_http_server {
@@ -64,7 +67,11 @@ struct wc_http_server {
     wc_h2_request_cb h2_handler;
     void *h2_user;
     wc_http_conn *conns;
+    /* Connections closed during the current event batch; freed by reap_dead. */
+    wc_http_conn *dead;
     size_t conn_count;
+    /* One-shot timer that re-arms the listener after fd exhaustion. */
+    wc_timer *accept_pause;
 };
 
 bool wc_http_conn_flush(wc_http_conn *conn);

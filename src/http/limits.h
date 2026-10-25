@@ -11,7 +11,10 @@ enum {
     WC_HTTP_MAX_CONNECTIONS = 1024,
     WC_HTTP_KEEPALIVE_REQUESTS = 1000,
     WC_HTTP_IDLE_TIMEOUT_MS = 5000,
-    WC_HTTP_REQUEST_TIMEOUT_MS = 10000
+    WC_HTTP_REQUEST_TIMEOUT_MS = 10000,
+    /* Bound for a response that stalled on EAGAIN with no other deadline. */
+    WC_HTTP_WRITE_TIMEOUT_MS = 60000,
+    WC_HTTP_LISTEN_BACKLOG = 511
 };
 
 #endif

@@ -22,6 +22,10 @@ Server.serve { |req, res|
     var body = "x"
     for (i in 0...20) body = body + body
     res.send(200, body)
+  } else if (req.path == "/huge") {
+    var body = "x"
+    for (i in 0...23) body = body + body
+    res.send(200, body)
   } else if (req.path == "/no-content") {
     res.send(204, "")
   } else if (req.path == "/running") {
