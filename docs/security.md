@@ -56,4 +56,5 @@ request any `http`/`https` URL reachable from the host, including link-local and
 addresses. Non-HTTP libcurl protocols such as `file://` are rejected. There is no destination allowlist yet; treat `--allow net` as an
 SSRF-capable capability and do not grant it to untrusted scripts. TLS
 verification and redirects follow libcurl defaults, and the call blocks the
-single event loop for up to 60 seconds.
+single event loop for its timeout (10 s default, 5 s connect; `Http.setTimeout`
+raises it up to 300 s).

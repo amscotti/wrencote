@@ -83,6 +83,7 @@ int main(void) {
     assert(run_script(WC_CAP_FS | WC_CAP_SYS, root, "tests/data/fs_app.wren") == WC_OK);
     assert(run_script(WC_CAP_FS, root, "tests/data/fs_errors.wren") == WC_OK);
     assert(run_script(WC_CAP_FS, "/does/not/exist", "tests/data/fs_app.wren") == WC_ENOENT);
+    assert(run_script(WC_CAP_SYS, NULL, "tests/data/sys_limits.wren") == WC_OK);
 
     char out[512];
     snprintf(out, sizeof out, "%s/out.txt", root);

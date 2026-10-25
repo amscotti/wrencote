@@ -40,17 +40,23 @@ small assets, not for serving large files.
 | `Sys.env(name)` | `String` or `Null` | reads the process environment; absence is `null` |
 | `Sys.args` | `List<String>` | CLI arguments; empty for an embedded host |
 | `Sys.clock` | `Num` | monotonic seconds since host construction |
+| `Sys.sleep(ms)` | `Null` | parks the event loop; capped at 10,000 ms |
 
 `Sys.clock` is wall-duration time. Core `System.clock` is CPU time and is not a substitute.
+`Sys.sleep` blocks the single-threaded loop for the whole duration (ADR-0018 documents the async
+design that will replace it); the cap bounds how long one handler can stall every connection.
 
 ## `http`
 
 Optional libcurl-backed outbound client. Requires `WC_CAP_NET`; denied unless
 `--allow net` is passed. With the default sandbox, seccomp denies `socket`/`connect`, so the module
-only works under `--no-sandbox`. Both calls block the loop for up to 60 seconds.
+only works under `--no-sandbox`. Both calls block the loop; the default timeout is 10 s
+(5 s connect), and `Http.setTimeout(ms)` (50..300000) raises or lowers it for batch scripts —
+a stalled request aborts the fiber with a curl timeout error.
 
 ```wren
 import "http" for Http
+Http.setTimeout(30000)
 var body = Http.request("GET", "https://example.com/", "", null)
 var lines = Http.streamLines("GET", "https://example.com/", "", null)
 ```

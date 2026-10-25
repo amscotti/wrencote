@@ -44,8 +44,8 @@ static void sys_sleep(WrenVM *vm) {
         return;
     }
     double milliseconds = wrenGetSlotDouble(vm, 1);
-    if (milliseconds != milliseconds || milliseconds < 0 || milliseconds > 60000) {
-        wrenSetSlotString(vm, 0, "Sys.sleep: milliseconds must be 0..60000");
+    if (milliseconds != milliseconds || milliseconds < 0 || milliseconds > 10000) {
+        wrenSetSlotString(vm, 0, "Sys.sleep: milliseconds must be 0..10000");
         wrenAbortFiber(vm, 0);
         return;
     }

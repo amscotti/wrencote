@@ -43,6 +43,10 @@ Full test suite (40 ctest targets) green on Linux aarch64 (Debian 13, gcc 14, AS
 - TLS: handshake progress tracks what OpenSSL is actually blocked on (`WC_EV_READ`/`WC_EV_WRITE`)
   and write readiness retries the handshake; previously every handshake requested writability and
   a one-byte partial ClientHello spun a core at 100% without making progress.
+- Modules: the loop-blocking calls are bounded — `Http` defaults to a 10 s overall / 5 s connect
+  timeout with a new `Http.setTimeout(ms)` (50..300000) opt-up, and `Sys.sleep` caps at 10 s. A
+  stalled request aborts the fiber with a timeout error (integration test added). Full async is
+  designed in ADR-0018 (deferred exchanges + curl_multi on the loop; GAPS G18/G16).
 - Sandbox: allowlist gains `clock_nanosleep`/`nanosleep` (Sys.sleep under the sandbox was a silent
   no-op) and `getsockopt`; the arch check admits only the build architecture (fail-closed
   elsewhere). The CLI reads the entry script *before* enabling the sandbox and runs its top level

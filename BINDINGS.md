@@ -198,7 +198,7 @@ since=0.1
 module=http class=Http signature=request(_,_,_,_) static=true arity=4
 args=String method, String url, String headers, String|null body
 returns=String response body (status code is not exposed yet)
-blocking=yes, up to 60 s
+blocking=yes, 10 s default / 5 s connect timeout (Http.setTimeout up to 300 s)
 capability=WC_CAP_NET
 notes=headers are newline-separated `Name: value` lines; redirects followed; TLS verification on; only http/https URLs (file:// and other libcurl protocols rejected); response cap 8 MiB / 10,000 lines
 
@@ -207,6 +207,12 @@ args=String method, String url, String headers, String|null body
 returns=List<String> response lines, including blank SSE separators
 blocking=yes; the HTTP read is streaming but the list arrives at completion; 8 MiB / 10,000 line cap
 capability=WC_CAP_NET
+
+module=http class=Http signature=setTimeout(_) static=true arity=1
+args=num milliseconds (50..300000)
+returns=null
+blocking=no
+notes=persists for the process; bounds every later request/streamLines call
 ```
 
 `Http` is compiled only when CMake finds libcurl; otherwise `import "http"` is denied.

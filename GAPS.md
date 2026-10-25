@@ -66,11 +66,15 @@ honest: an item here is not “done” because it has a plan or a test that only
 
 ### G18. Handlers can block the event loop
 
-- **Symptom:** `Sys.sleep` (up to 60 s), the `fs` module's blocking file I/O, and the optional
-  synchronous `Http.request` (libcurl, 60 s timeout) all run on the loop thread; one slow call
-  stalls every connection. `Http.request` also has no SSRF/allowlist policy.
-- **Needed:** async I/O or worker offload per the v0.4 plan; document the risk prominently until
-  then. The capability gate (`WC_CAP_SYS`/`WC_CAP_NET`) is the only guard today.
+- **Symptom:** `Sys.sleep` (bounded to 10 s), the `fs` module's blocking file I/O, and the
+  optional synchronous `Http.request` (10 s default, `Http.setTimeout` up to 300 s) all run on the
+  loop thread; one slow call stalls every connection for the duration.
+- **Status (Unreleased):** the blast radius is bounded — `Http` defaults to 10 s overall / 5 s
+  connect with an explicit opt-up, and `Sys.sleep` caps at 10 s. The real fix is the deferred-
+  exchange + `curl_multi` design in ADR-0018 (needs G16); blocking remains a documented latency
+  risk, not an unbounded outage.
+- **Needed:** implement ADR-0018: refcounted `wc_exchange` with generation checks, callback-style
+  `Http`/`Sys.sleep` APIs driven by the loop, handler return-without-response.
 
 ### G19. Listener limitations
 

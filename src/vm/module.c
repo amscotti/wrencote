@@ -72,6 +72,7 @@ static const char FS_SOURCE[] = "class Fs {\n"
 static const char HTTP_SOURCE[] = "class Http {\n"
                                   "  foreign static request(method, url, headers, body)\n"
                                   "  foreign static streamLines(method, url, headers, body)\n"
+                                  "  foreign static setTimeout(ms)\n"
                                   "}\n";
 #endif
 static const char SYS_SOURCE[] = "class Sys {\n"

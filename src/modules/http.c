@@ -12,7 +12,17 @@
 #define WC_HTTP_CLIENT_MAX_BODY (8u * 1024u * 1024u)
 #define WC_HTTP_CLIENT_MAX_LINES 10000u
 
+/* Bounds for loop-blocking calls: every Http request parks the single-threaded
+ * event loop until it completes, so the default must be small enough that one
+ * dead origin cannot stall every connection for a minute. Scripts doing bulk
+ * work can raise it with Http.setTimeout. */
+#define WC_HTTP_TIMEOUT_MIN_MS 50L
+#define WC_HTTP_TIMEOUT_MAX_MS 300000L
+#define WC_HTTP_TIMEOUT_DEFAULT_MS 10000L
+#define WC_HTTP_CONNECT_TIMEOUT_S 5L
+
 static unsigned http_refs;
+static long http_timeout_ms = WC_HTTP_TIMEOUT_DEFAULT_MS;
 
 typedef struct http_lines {
     char **items;
@@ -198,7 +208,8 @@ static bool http_perform(WrenVM *vm, bool collect_lines, http_result *result) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, result);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, http_timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, WC_HTTP_CONNECT_TIMEOUT_S);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "wrencote-http/0.2");
     if (body_len > 0) {
@@ -260,6 +271,21 @@ static void http_stream_lines(WrenVM *vm) {
     http_result_free(&result);
 }
 
+static void http_set_timeout(WrenVM *vm) {
+    if (wrenGetSlotType(vm, 1) != WREN_TYPE_NUM) {
+        http_abort(vm, "Http.setTimeout: milliseconds must be a number");
+        return;
+    }
+    double milliseconds = wrenGetSlotDouble(vm, 1);
+    if (milliseconds != milliseconds || milliseconds < (double)WC_HTTP_TIMEOUT_MIN_MS ||
+        milliseconds > (double)WC_HTTP_TIMEOUT_MAX_MS) {
+        http_abort(vm, "Http.setTimeout: milliseconds must be 50..300000");
+        return;
+    }
+    http_timeout_ms = (long)milliseconds;
+    wrenSetSlotNull(vm, 0);
+}
+
 void wc_http_client_init(void) {
     if (http_refs++ == 0) {
         (void)curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -283,6 +309,9 @@ WrenForeignMethodFn wc_http_bind_method(void *user, const char *module, const ch
     }
     if (strcmp(signature, "streamLines(_,_,_,_)") == 0) {
         return http_stream_lines;
+    }
+    if (strcmp(signature, "setTimeout(_)") == 0) {
+        return http_set_timeout;
     }
     return NULL;
 }
