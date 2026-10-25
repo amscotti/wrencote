@@ -43,8 +43,8 @@ to `text/plain; charset=utf-8`.
 nghttp2 serializes frames. After each batch of ready handlers the server flushes
 once before the last ready handler, which keeps a small response ahead of a
 large one while avoiding an `SSL_write` per request. The output buffer is
-drained by the event loop on `EPOLLOUT`; a failed flush pauses dispatch until the
-connection is writable.
+drained by the event loop on write readiness (`WC_EV_WRITE`); a failed flush
+pauses dispatch until the connection is writable.
 
 ## Verification
 

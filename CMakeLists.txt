@@ -57,8 +57,7 @@ set(WRENCOTE_HTTP_SOURCES
     src/http/server.c)
 
 set(WRENCOTE_HTTP2_SOURCES
-    src/http2/frame.c
-    src/http2/conn.c)
+    src/http2/frame.c)
 if(WRENCOTE_ENABLE_HTTP2)
     list(APPEND WRENCOTE_HTTP2_SOURCES src/http2/server.c)
 endif()
@@ -139,6 +138,10 @@ target_include_directories(wrencote_objects PRIVATE
 target_compile_definitions(wrencote_objects PRIVATE WC_BUILDING_LIBRARY)
 if(WRENCOTE_ENABLE_TLS)
     target_compile_definitions(wrencote_objects PRIVATE WC_ENABLE_TLS=1)
+    # The TLS sources need the OpenSSL headers; PRIVATE usage requirements are
+    # applied when compiling the object library itself.
+    target_link_libraries(wrencote_objects PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_include_directories(wrencote_objects PRIVATE ${OPENSSL_INCLUDE_DIR})
 endif()
 if(CURL_FOUND)
     target_include_directories(wrencote_objects PRIVATE ${CURL_INCLUDE_DIRS})
@@ -216,7 +219,7 @@ if(WRENCOTE_BUILD_TESTS)
         target_compile_options(${name} PRIVATE -UNDEBUG)
         wrencote_set_warnings(${name})
         add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)
-        set_tests_properties(${name} PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(${name} PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     endfunction()
     wc_add_test(test_version)
     wc_add_test(test_arena)
@@ -240,7 +243,6 @@ if(WRENCOTE_BUILD_TESTS)
     wc_add_test(test_http_response)
     wc_add_test(test_http_config)
     wc_add_test(test_h2_frame)
-    wc_add_test(test_h2_conn)
     if(WRENCOTE_ENABLE_HTTP2)
         wc_add_test(test_h2_server)
         target_link_libraries(test_h2_server PRIVATE PkgConfig::NGHTTP2)
@@ -274,31 +276,34 @@ if(WRENCOTE_BUILD_TESTS)
     set_tests_properties(test_sandbox_syscalls PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
     add_test(NAME test_sandbox
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sandbox.sh ${CMAKE_BINARY_DIR})
-    set_tests_properties(test_sandbox PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_tests_properties(test_sandbox PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     if(WRENCOTE_ENABLE_TLS AND WRENCOTE_ENABLE_HTTP2)
         find_package(Python3 COMPONENTS Interpreter)
         if(NOT WRENCOTE_TSAN)
             add_test(NAME test_h2_unique
                 COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_h2_unique.sh ${CMAKE_BINARY_DIR})
-            set_tests_properties(test_h2_unique PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+            set_tests_properties(test_h2_unique PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
+            add_test(NAME test_h2_idle
+                COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_h2_idle.sh ${CMAKE_BINARY_DIR})
+            set_tests_properties(test_h2_idle PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
         endif()
         add_test(NAME test_h2_slow_reader
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_h2_slow_reader.sh ${CMAKE_BINARY_DIR})
-        set_tests_properties(test_h2_slow_reader PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_h2_slow_reader PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
         add_test(NAME test_http_client
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_http_client.sh ${CMAKE_BINARY_DIR})
-        set_tests_properties(test_http_client PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_http_client PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
         add_test(NAME test_sse
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sse.sh ${CMAKE_BINARY_DIR})
-        set_tests_properties(test_sse PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_sse PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
         add_test(NAME test_http2_server
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_http2_server.sh ${CMAKE_BINARY_DIR})
-        set_tests_properties(test_http2_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_http2_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     endif()
     if(WRENCOTE_ENABLE_TLS)
         add_test(NAME test_tls_server
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls_server.sh ${CMAKE_BINARY_DIR})
-        set_tests_properties(test_tls_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_tls_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     endif()
     add_test(NAME test_cli
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_cli.sh ${CMAKE_BINARY_DIR})
@@ -310,14 +315,14 @@ if(WRENCOTE_BUILD_TESTS)
     wrencote_set_warnings(test_stdlib)
     target_compile_options(test_stdlib PRIVATE -UNDEBUG)
     add_test(NAME test_stdlib COMMAND $<TARGET_FILE:test_stdlib>)
-    set_tests_properties(test_stdlib PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_tests_properties(test_stdlib PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     add_executable(test_http_server tests/integration/test_http_server.c)
     target_link_libraries(test_http_server PRIVATE wrencote_static Threads::Threads)
     target_include_directories(test_http_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wren/src/include)
     wrencote_set_warnings(test_http_server)
     target_compile_options(test_http_server PRIVATE -UNDEBUG)
     add_test(NAME test_http_server COMMAND $<TARGET_FILE:test_http_server>)
-    set_tests_properties(test_http_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_tests_properties(test_http_server PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} TIMEOUT 180)
     wc_add_test(test_vm)
     wc_add_test(test_host)
 endif()
@@ -328,18 +333,26 @@ file(GLOB_RECURSE WC_FORMAT_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.c)
 
-find_program(CLANG_FORMAT_EXECUTABLE clang-format REQUIRED)
-add_custom_target(format-check
-    COMMAND ${CLANG_FORMAT_EXECUTABLE} --dry-run --Werror ${WC_FORMAT_SOURCES}
-    COMMENT "Checking clang-format")
+find_program(CLANG_FORMAT_EXECUTABLE clang-format)
+if(CLANG_FORMAT_EXECUTABLE)
+    add_custom_target(format-check
+        COMMAND ${CLANG_FORMAT_EXECUTABLE} --dry-run --Werror ${WC_FORMAT_SOURCES}
+        COMMENT "Checking clang-format")
+else()
+    message(STATUS "clang-format not found; format-check target unavailable")
+endif()
 
 file(GLOB_RECURSE WC_TIDY_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.c)
-find_program(CLANG_TIDY_EXECUTABLE clang-tidy REQUIRED)
-add_custom_target(tidy
-    COMMAND ${CLANG_TIDY_EXECUTABLE} -p ${CMAKE_BINARY_DIR} --extra-arg=-Wno-unknown-warning-option ${WC_TIDY_SOURCES}
-    COMMENT "Running clang-tidy")
+find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+if(CLANG_TIDY_EXECUTABLE)
+    add_custom_target(tidy
+        COMMAND ${CLANG_TIDY_EXECUTABLE} -p ${CMAKE_BINARY_DIR} --extra-arg=-Wno-unknown-warning-option ${WC_TIDY_SOURCES}
+        COMMENT "Running clang-tidy")
+else()
+    message(STATUS "clang-tidy not found; tidy target unavailable")
+endif()
 
 find_program(GCOVR_EXECUTABLE gcovr)
 add_custom_target(coverage
@@ -356,6 +369,9 @@ add_custom_target(coverage
 
 option(WRENCOTE_BUILD_FUZZERS "Build libFuzzer targets" OFF)
 if(WRENCOTE_BUILD_FUZZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "WRENCOTE_BUILD_FUZZERS requires Clang (libFuzzer)")
+    endif()
     add_executable(fuzz_http_request
         tests/fuzz/fuzz_http_request.c
         src/http/parser.c
@@ -366,11 +382,17 @@ if(WRENCOTE_BUILD_FUZZERS)
     target_compile_options(fuzz_http_request PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
     target_link_options(fuzz_http_request PRIVATE -fsanitize=fuzzer,address,undefined)
     if(WRENCOTE_ENABLE_HTTP2)
-        add_executable(fuzz_h2_feed tests/fuzz/fuzz_h2_feed.c)
-        target_include_directories(fuzz_h2_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        # Compiles the adapter sources directly (like its sibling targets) so
+        # libFuzzer drives the nghttp2 adapter's coverage, not just the
+        # harness's.
+        add_executable(fuzz_h2_feed tests/fuzz/fuzz_h2_feed.c src/http2/server.c
+                                        src/http2/frame.c src/core/mem.c src/core/buf.c
+                                        src/core/status.c src/core/str.c)
+        target_include_directories(fuzz_h2_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/include ${NGHTTP2_INCLUDE_DIRS})
         target_compile_options(fuzz_h2_feed PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
         target_link_options(fuzz_h2_feed PRIVATE -fsanitize=fuzzer,address,undefined)
-        target_link_libraries(fuzz_h2_feed PRIVATE wrencote_static)
+        target_link_libraries(fuzz_h2_feed PRIVATE ${NGHTTP2_LIBRARIES} m)
         add_executable(fuzz_h2_frame tests/fuzz/fuzz_h2_frame.c src/http2/frame.c)
         target_include_directories(fuzz_h2_frame PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_compile_options(fuzz_h2_frame PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)

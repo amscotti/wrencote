@@ -10,8 +10,8 @@ try:
     from h2.connection import H2Connection
     from h2.events import StreamEnded
 except ImportError:
-    print("skip: python h2 package unavailable")
-    sys.exit(0)
+    print("error: python h2 package unavailable (install python3-h2)")
+    sys.exit(1)
 
 HOST = "127.0.0.1"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18100

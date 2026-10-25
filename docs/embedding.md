@@ -45,6 +45,11 @@ Then:
 5. `wc_host_enable_sandbox(host)` optionally applies Landlock + seccomp after load and before run.
 6. `wc_host_free(host)` after run returns.
 
+To sandbox the script's *top level* too (what the CLI does), read the source yourself, enable the
+sandbox, then execute it in memory: `wc_host_load_source(host, "main", source)` interprets without
+touching the filesystem, so no file access happens after the sandbox exists. `wc_host_load`
+remains the convenience path for embedders that do not sandbox.
+
 `wc_host_check(host, path)` compiles without executing the top level; it is what `wrencote check`
 uses.
 

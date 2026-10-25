@@ -18,10 +18,13 @@ wrencote --version | --help
   and `router` need no capability but are accepted for symmetry.
 - `--root` is required when `fs` is allowed. Paths are relative to it.
 - `--max-request` sets the request body and response cap in bytes.
-- `--vm-heap` sets the advisory Wren heap budget.
+- `--vm-heap` sets the Wren heap budget. The host collects garbage and answers 503 while the live
+  heap stays above it; a budget below the VM baseline is rejected at startup.
 - `--log-level` is 0 (errors), 1 (warnings), 2 (info), 3 (debug).
-- `--sandbox` (default) applies Landlock + seccomp after the script loads and before the loop;
-  `--no-sandbox` is for development and tests.
+- `--sandbox` (default) applies Landlock + seccomp before the script's top level runs (the entry
+  file is read first, then executed sandboxed); `--no-sandbox` is for development and tests.
+- `--listen` accepts `HOST:PORT` and `[v6-host]:PORT` (for example `[::1]:8080`; IPv6 listeners are
+  dual-stack).
 - Exit codes: 0 success, 1 runtime/setup failure, 2 usage error.
 
 Example:

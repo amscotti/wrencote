@@ -1,6 +1,6 @@
 name: ci
 
-# Dormant until the repository is published. Local development uses scripts/ci-local.sh.
+# Runs the full test suite on push/PR. Local development uses scripts/ci-local.sh.
 on:
   push:
     branches: [main]
@@ -18,10 +18,58 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang clang-format clang-tidy cppcheck valgrind gcovr
+          sudo apt-get install -y \
+            gcc-13 ninja-build clang clang-format clang-tidy cppcheck valgrind gcovr \
+            libssl-dev libnghttp2-dev libcurl4-openssl-dev pkg-config python3-pip
+          python3 -m pip install --break-system-packages h2
+          # The project requires CMake >= 4.0; the runner image ships 3.31.
+          curl -fsSL -o /tmp/cmake.tgz \
+            "https://github.com/Kitware/CMake/releases/download/v4.4.0/cmake-4.4.0-linux-$(uname -m).tar.gz"
+          sudo tar -C /opt -xzf /tmp/cmake.tgz
+          sudo ln -sf /opt/cmake-4.4.0-linux-$(uname -m)/bin/* /usr/local/bin/
       - name: Configure
         run: cmake --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}"
       - name: Build
         run: cmake --build --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}"
       - name: Test
         run: ctest --preset "${{ matrix.compiler == 'gcc' && 'ci-gcc' || 'ci-clang' }}" --output-on-failure
+
+  http1-only:
+    # Verifies the TLS/HTTP2-off configuration (the static musl artifact path).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config
+          curl -fsSL -o /tmp/cmake.tgz \
+            "https://github.com/Kitware/CMake/releases/download/v4.4.0/cmake-4.4.0-linux-$(uname -m).tar.gz"
+          sudo tar -C /opt -xzf /tmp/cmake.tgz
+          sudo ln -sf /opt/cmake-4.4.0-linux-$(uname -m)/bin/* /usr/local/bin/
+      - name: Build without TLS or HTTP/2
+        run: |
+          cmake -S . -B build/http1 -G Ninja \
+            -DWRENCOTE_BUILD_TLS=OFF -DWRENCOTE_ENABLE_TLS=OFF \
+            -DWRENCOTE_ENABLE_HTTP2=OFF -DWRENCOTE_BUILD_TESTS=OFF
+          cmake --build build/http1
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t wrencote:ci .
+      - name: Smoke test
+        run: |
+          docker run --rm wrencote:ci --version
+          docker run -d --name wrencote-smoke -p 8080:8080 wrencote:ci
+          ok=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            if curl -sf http://127.0.0.1:8080/health; then ok=1; break; fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8080/json
+          docker logs wrencote-smoke
+          docker rm -f wrencote-smoke
+          test "$ok" = 1

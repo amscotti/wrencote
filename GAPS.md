@@ -36,6 +36,9 @@ honest: an item here is not “done” because it has a plan or a test that only
 - **Needed:** either build OpenSSL with musl and package a static TLS artifact, or keep the glibc
   artifact as the documented v0.2 distribution and label the static musl artifact HTTP/1.1-only.
 - **Status:** decided: glibc v0.2 for now; revisit for a static v0.2.x.
+- **Update (Unreleased):** the TLS/HTTP2-off configuration now configures *and links* (guards in
+  `http/server.c`, `http/response.c`, `server/host.c`), and CI has an `http1-only` job. The musl
+  artifact still needs a TLS-free OpenSSL decision for v0.2.x.
 
 ### G4. Assertions are nominal
 
@@ -48,7 +51,8 @@ honest: an item here is not “done” because it has a plan or a test that only
 ### G5. Module loader is a development stub
 
 - **Symptom:** one flat `module_path`, `name.wren`, no nested/relative imports, no CLI flag, host sets
-  `module_path = NULL`.
+  `module_path = NULL`. The loader validates names but uses `fopen`, so symlinks under `module_path`
+  are followed.
 - **Needed:** rooted project loader (v0.3 design): canonical IDs, relative imports, `WC_CAP_MODULES`,
   openat2/no symlink, limits, cache identity, Landlock read rule.
 
@@ -59,6 +63,50 @@ honest: an item here is not “done” because it has a plan or a test that only
 - **Needed:** v0.4 design in the plan; never block the event loop on DNS/connect/TLS.
 
 ## P2 — quality and tooling
+
+### G18. Handlers can block the event loop
+
+- **Symptom:** `Sys.sleep` (up to 60 s), the `fs` module's blocking file I/O, and the optional
+  synchronous `Http.request` (libcurl, 60 s timeout) all run on the loop thread; one slow call
+  stalls every connection. `Http.request` also has no SSRF/allowlist policy.
+- **Needed:** async I/O or worker offload per the v0.4 plan; document the risk prominently until
+  then. The capability gate (`WC_CAP_SYS`/`WC_CAP_NET`) is the only guard today.
+
+### G19. Listener limitations
+
+- **Status (Unreleased):** EMFILE/ENFILE on accept now pauses the listener for 250 ms via a timer
+  instead of spinning; `--listen '[::1]:PORT'` (and any IPv6 bind address) is supported with a
+  dual-stack socket; the backlog is 511.
+- **Remaining:** a single read event can still dispatch an unbounded batch of pipelined requests
+  (bounded only by head size and `keepalive_requests`) — a fairness/head-of-line consideration
+  rather than a correctness bug.
+
+### G20. `wc_vm_check` uses Wren private API
+
+- `wrenCompileSource` is re-declared manually and the returned closure is left unrooted; the
+  compile also runs under the file path as module name, polluting the module namespace. Works
+  today; fragile against Wren upgrades.
+
+### G21. The sandbox is installed after the script top level runs — RESOLVED
+
+- **Resolution (Unreleased):** `wc_host_load_source` (public API) splits reading from executing.
+  The CLI now reads the entry script before enabling the sandbox and runs its top level under
+  Landlock+seccomp; `test_sandbox.sh` proves a top-level outbound `Http.request` is denied while
+  the same call succeeds with `--no-sandbox`. `wc_host_load` remains for embedders that do not
+  sandbox.
+
+### G22. `fuzz_h2_feed` is coverage-blind — RESOLVED
+
+- **Resolution (Unreleased):** the target now compiles the nghttp2 adapter sources directly (like
+  its sibling targets), so libFuzzer drives adapter coverage (458 counters vs 3 before).
+
+### G23. Heap budget is a request gate, not a hard cap
+
+- **Symptom:** a script that retains memory above `vm_heap_bytes` (e.g. an unbounded module-global
+  cache) receives 503 for every request after the first collection fails to bring the live heap
+  under budget, and cannot run the code that would free it.
+- **Status:** documented in ADR-0014; transient over-budget allocations recover after GC. A hard cap
+  still requires process-level limits (`RLIMIT_AS`). Revisit with per-request arena-only policy.
 
 ### G7. HTTP/2 adapter test coverage
 
@@ -79,8 +127,10 @@ honest: an item here is not “done” because it has a plan or a test that only
 
 ### G10. No remote CI/artifact hosting
 
-- Repository remains local-first; no GitHub remote, no published release, no external reproducibility
-  check.
+- **Status:** stale as of 2026-10-25: a GitHub remote (`origin`) exists and `.github/workflows/ci.yml`
+  runs on push (the "dormant" comment in the workflow is outdated). Still missing: published
+  releases, external reproducibility check, and an arm64 CI leg (the suite is green on
+  Linux aarch64 locally via the dev container).
 
 
 ### G11. HTTP/2 request/response metadata parity
@@ -97,10 +147,11 @@ honest: an item here is not “done” because it has a plan or a test that only
 - **Symptom:** h2 ignores head/body/response caps, header count/list limits, idle/request timeouts,
   SETTINGS; 100 streams can hold 100 × 1 MiB and arbitrarily long `:path` strings.
 - **Status:** body/response/path limits and SETTINGS max-concurrent/header-list are wired; path oversize
-  aborts the stream. Remaining: per-stream idle/request deadlines and REFUSED_STREAM behavior.
-- **Status:** idle timer now resets on h2 activity; excess streams get `REFUSED_STREAM`. Remaining:
-  explicit request deadline test. 100-unique-body is covered by `test_h2_unique`; `fuzz_h2_feed` exercises
-  the adapter under ASan/UBSan with a preface seed.
+  aborts the stream. Idle timer resets on h2 activity (verified by `test_h2_idle`; the earlier
+  "resets on activity" claim here predated the code and was corrected in the Unreleased pass).
+  Per-stream header byte budget added. Remaining: explicit request deadline test.
+  100-unique-body is covered by `test_h2_unique`; `fuzz_h2_feed` exercises the adapter under
+  ASan/UBSan with a preface seed.
 
 ### G13. Release integrity is broken — RESOLVED
 
@@ -138,10 +189,25 @@ honest: an item here is not “done” because it has a plan or a test that only
   importable.
 - **Needed:** allocate canonical IDs with the VM allocator; deny unknown modules explicitly; ASan
   10k-resolve test; remove the flat `module_path` stub.
+- **Status (Unreleased pass):** the `wc_mem_malloc`/`free` allocator mixing found by review is fixed
+  across http2/response/module; loadable module names are validated as single path segments with a
+  1 MiB size cap, and short reads are rejected. The loader still uses `fopen`, so a symlink under
+  `module_path` is followed — symlink escape remains part of G5. The rooted loader, explicit
+  unknown-module denial, and `test` gating remain open.
 
 ## Current verified baseline
 
-- 37/37 tests, 85.3% line coverage.
-- h2spec 144 passed, 2 skipped, 0 failed.
-- h2load 1000/1000, 100 concurrent streams, 25,836 req/s.
-- v0.1.0 static musl HTTP/1.1; v0.2.0 glibc TLS/HTTP2.
+- 40/40 ctest targets on Linux aarch64 (Debian 13, gcc 14, ASan+UBSan dev preset, dev container),
+  including regressions for pipelining, h1 backpressure (real EAGAIN), h2 idle survival, h2 HEAD
+  no-body, loop token wrap, timer-heap double insert, heap-budget recovery, top-level sandbox
+  denial, and IPv6 binding.
+- Gates re-run on aarch64 (ASan build): h2load 1000/1000 succeeded, 0 failed (58.6k req/s);
+  slow-reader p99 6.6 ms baseline / 6.5 ms with a concurrent slow stream (2x gate);
+  h2spec 2.6.0: 146 passed, 0 skipped, 0 failed.
+- Fuzzing: fuzz_http_request, fuzz_h2_frame, fuzz_h2_feed coverage-driven (~90M total execs
+  across sessions, no findings).
+- TLS/HTTP2-off configuration builds and links (CI `http1-only` job); CI recipe validated
+  dependency-install + configure + build on ubuntu-24.04 (gcc-13 and clang-18 legs).
+- Known toolchain limits: gcc <= 13 + ASan on aarch64 hangs in Wren string concat (CMake warns);
+  TSan needs a real Linux host (`setarch -R`), not unprivileged Docker.
+- Earlier verified on x86-64: v0.1.0 static musl HTTP/1.1; v0.2.0 glibc TLS/HTTP2.

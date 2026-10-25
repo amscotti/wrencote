@@ -23,9 +23,9 @@ Use **nghttp2** for HTTP/2 framing, HPACK, stream state, and flow control. Wrenc
 nghttp2 is linked privately. Its headers do not appear in public headers, and no `nghttp2_*` symbol is
 exported from `libwrencote.so`.
 
-The existing `src/http2/frame.c` and `conn.c` control-plane code is retained only as a bounded parser
-test surface and will not be the production HTTP/2 path; it is removed once the adapter has equivalent
-tests.
+The existing `src/http2/frame.c` control-plane code is retained as a bounded parser test surface and
+is not the production HTTP/2 path. (The dead hand-written `conn.c` parser was removed in the
+Unreleased pass once the nghttp2 adapter had equivalent tests.)
 
 ## Consequences
 

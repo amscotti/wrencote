@@ -3,9 +3,21 @@
 ## Release floor
 
 - CMake 4.0 or newer
-- GCC 15+ or Clang 19+ (`#embed` and `constexpr` objects require Clang 19 / GCC 15)
+- GCC 13+ or Clang 18+ (CMake falls back to `-std=c2x` when the compiler lacks `-std=c23`; the
+  standard-library generator keeps a byte-array fallback, so `#embed` is not required)
 - Ninja
-- clang-format and clang-tidy, pinned to the same major version as CI
+- clang-format and clang-tidy, pinned to the same major version as CI (optional at configure time;
+  the `format-check`/`tidy` targets only exist when the tools are found)
+
+## Known toolchain issues
+
+- **gcc <= 13 + ASan on aarch64 hangs** inside Wren string concatenation (`while (big.count <
+  1048576) big = big + big` in `tests/data/fs_errors.wren` spins allocating; plain builds and
+  clang+ASan pass, and gcc-14 is unaffected). CMake warns about this combination; prefer clang on
+  arm64 or configure with `-DWRENCOTE_SANITIZE=OFF`.
+- TSan cannot start inside unprivileged Docker on macOS hosts (`FATAL: ThreadSanitizer: unexpected
+  memory mapping`); run the `tsan` preset on a real Linux host via `scripts/ci-local.sh`
+  (`setarch -R`).
 
 ## Bootstrap environment used for local development
 
@@ -14,10 +26,6 @@ installed under `~/.local`:
 
 ```sh
 python3 -m pip install --user cmake==4.4.4 clang-format==21.1.8 clang-tidy==21.1.6 gcovr
-curl -sSLO https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
-tar -xf zig-x86_64-linux-0.17.0.tar.xz -C ~/.local/opt
-ln -sf ~/.local/opt/zig-0.17.0/zig ~/.local/bin/zig
-# zigcc wrapper: exec ~/.local/opt/zig-0.17.0/zig cc "$@"
 ```
 
 `zig cc` provides Clang 22 for C23 work without root. GCC 13 is kept as the second bootstrap

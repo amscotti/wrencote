@@ -44,7 +44,7 @@
       "name": "ci-clang",
       "inherits": "dev",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "zigcc"
+        "CMAKE_C_COMPILER": "clang"
       }
     },
     {

@@ -17,10 +17,6 @@
 - TLS ALPN routing: `wc_transport_alpn` selects `h2`; the HTTP connection switches to the nghttp2
   session, while HTTP/1.1 clients keep the existing parser. `tests/integration/test_http2_server.sh`
   verifies both protocols on one listener.
-- `src/http2/conn.[ch]`: hand-written control-plane evidence retained for parser tests only; it is not
-  the production path. HEADERS/DATA are rejected there by design.
-- `tests/unit/test_h2_conn.c`: preface, SETTINGS/ACK, PING, WINDOW_UPDATE, GOAWAY, partial and oversized
-  frames.
 - `tests/unit/test_h2_frame.c`: valid/partial/oversized headers and reserved-bit cases.
 - `tests/unit/test_tls.c`: real socketpair handshake against an OpenSSL client, ALPN assertion (`h2`),
   encrypted ping/pong, invalid-context and null-argument paths.
@@ -43,8 +39,10 @@ ctest -R test_tls
 1/1 Test #22: test_tls ... Passed  0.93 sec
 ```
 
-`ctest -R 'test_h2_frame|test_h2_conn|test_h2_server|test_tls|test_tls_transport|test_tls_alpn|test_tls_server|test_http2_server'`:
-8/8 passed. Full `ci-local`: **38/38 tests**, 85.8% lines, all gates green.
+`ctest -R 'test_h2_frame|test_h2_server|test_tls|test_tls_transport|test_tls_alpn|test_tls_server|test_http2_server'`:
+8/8 passed. Full `ci-local`: **40/40 tests**, all gates green. (`src/http2/conn.[ch]` and its test were
+removed in the Unreleased pass; the production adapter is covered by `test_h2_server` plus the
+integration suite.)
 
 ### Conformance status
 

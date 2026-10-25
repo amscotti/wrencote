@@ -46,7 +46,8 @@ small assets, not for serving large files.
 ## `http`
 
 Optional libcurl-backed outbound client. Requires `WC_CAP_NET`; denied unless
-`--allow net` is passed. Both calls block the loop for up to 60 seconds.
+`--allow net` is passed. With the default sandbox, seccomp denies `socket`/`connect`, so the module
+only works under `--no-sandbox`. Both calls block the loop for up to 60 seconds.
 
 ```wren
 import "http" for Http

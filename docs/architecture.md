@@ -8,7 +8,7 @@ accepts connections, parses requests, and enters the VM only when idle.
 | # | Invariant |
 |---|---|
 | I1 | Public headers expose opaque types only (the sized host config is the documented exception) |
-| I2 | Shared library exports only allowlisted `wc_*` symbols; the static archive leaks no `wren*` |
+| I2 | Shared library exports only allowlisted `wc_*` symbols (the static archive necessarily contains `wren*`; localization applies to the shared ABI). Only symbols declared in `include/wrencote` are ABI; internal `wc_*` helpers may change or be removed between versions. |
 | I3 | No host heap allocation inside a request except the arena and the single response copy |
 | I4 | Every size/offset computation is overflow-checked |
 | I5 | Modules require their capability; unknown modules are denied |

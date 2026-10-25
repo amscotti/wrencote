@@ -43,3 +43,16 @@ done
 test "$(curl -fsS http://127.0.0.1:18092/)" = "cli"
 test "$(curl -fsS http://127.0.0.1:18092/stop)" = "bye"
 wait "$pid"
+
+# Bracketed IPv6 bind address.
+"$build/wrencote" run tests/data/http_app.wren --listen '[::1]:18108' --allow http --no-sandbox >/tmp/wc-ipv6.log 2>&1 &
+pid=$!
+for _ in $(seq 1 50); do
+    if curl -g -fsS 'http://[::1]:18108/health' >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.1
+done
+test "$(curl -g -fsS 'http://[::1]:18108/health')" = "ok"
+kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true

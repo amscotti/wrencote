@@ -28,6 +28,25 @@ cmake --build --preset release
 
 The CLI applies Landlock and a seccomp allowlist by default; `--no-sandbox` is for development.
 
+## Container
+
+`Dockerfile` builds a small runtime image: the CLI and `examples/`, without the compiler. CI builds
+this image and does not push it to a registry.
+
+```sh
+docker build -t wrencote .
+docker run --rm -p 8080:8080 wrencote
+curl -s http://127.0.0.1:8080/health
+```
+
+That serves `examples/app.wren` on port 8080 with the usual Landlock and seccomp sandbox. If a
+runtime blocks those, add `--no-sandbox`. To serve a script from the current directory:
+
+```sh
+docker run --rm -p 8080:8080 -v "$PWD":/work -w /work wrencote \
+  run app.wren --listen 0.0.0.0:8080 --allow http,json
+```
+
 ## Release artifact
 
 The v0.2 artifact is a glibc build with TLS/HTTP2 (OpenSSL and nghttp2). The v0.1 artifact remains a

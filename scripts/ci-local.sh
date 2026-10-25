@@ -8,8 +8,17 @@ for preset in ci-gcc ci-clang; do
     cmake --preset "$preset" >/dev/null
     cmake --build --preset "$preset"
     ctest --preset "$preset" --output-on-failure
-    cmake --build --preset "$preset" --target format-check
-    cmake --build --preset "$preset" --target tidy
+    # format-check/tidy targets only exist when the dev tools were found.
+    if cmake --build --preset "$preset" --target help 2>/dev/null | grep -q format-check; then
+        cmake --build --preset "$preset" --target format-check
+    else
+        echo "format-check: skipped (clang-format not found)"
+    fi
+    if cmake --build --preset "$preset" --target help 2>/dev/null | grep -q '^\.\.\. tidy'; then
+        cmake --build --preset "$preset" --target tidy
+    else
+        echo "tidy: skipped (clang-tidy not found)"
+    fi
     bash tools/check_symbols.sh "build/${preset}/libwrencote.so"
 done
 

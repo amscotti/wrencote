@@ -1,6 +1,6 @@
 # ADR-0017: HTTP/2 write backpressure and slow-reader isolation
 
-**Status:** Proposed — blocks the Phase 9 gate
+**Status:** Accepted — the slow-reader p99 gate passes with the flush-before-last-ready-handler boundary
 **Date:** 2026-10-24
 
 ## Context

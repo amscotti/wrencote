@@ -1,0 +1,7 @@
+.git
+.github
+build
+*.o
+*.a
+*.so
+*.so.*
