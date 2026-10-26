@@ -176,8 +176,14 @@ set_target_properties(wrencote_shared PROPERTIES
     C_VISIBILITY_PRESET hidden
     LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/wrencote.map)
 target_link_options(wrencote_shared PRIVATE
-    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/wrencote.map"
-    "-Wl,--no-undefined")
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/wrencote.map")
+if(NOT WRENCOTE_SANITIZE AND NOT WRENCOTE_TSAN)
+    # An instrumented DSO intentionally leaves the sanitizer runtime hooks
+    # (__asan_report_*, __ubsan_handle_*) undefined for the host executable to
+    # provide; --no-undefined would reject those links. Release builds keep the
+    # strict check.
+    target_link_options(wrencote_shared PRIVATE "-Wl,--no-undefined")
+endif()
 target_link_libraries(wrencote_shared PRIVATE m)
 if(WRENCOTE_ENABLE_TLS)
     target_link_libraries(wrencote_shared PRIVATE OpenSSL::SSL OpenSSL::Crypto)
