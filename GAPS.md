@@ -36,7 +36,7 @@ honest: an item here is not “done” because it has a plan or a test that only
 - **Needed:** either build OpenSSL with musl and package a static TLS artifact, or keep the glibc
   artifact as the documented v0.2 distribution and label the static musl artifact HTTP/1.1-only.
 - **Status:** decided: glibc v0.2 for now; revisit for a static v0.2.x.
-- **Update (Unreleased):** the TLS/HTTP2-off configuration now configures *and links* (guards in
+- **Update (0.3.0):** the TLS/HTTP2-off configuration now configures *and links* (guards in
   `http/server.c`, `http/response.c`, `server/host.c`), and CI has an `http1-only` job. The musl
   artifact still needs a TLS-free OpenSSL decision for v0.2.x.
 
@@ -69,7 +69,7 @@ honest: an item here is not “done” because it has a plan or a test that only
 - **Symptom:** `Sys.sleep` (bounded to 10 s), the `fs` module's blocking file I/O, and the
   optional synchronous `Http.request` (10 s default, `Http.setTimeout` up to 300 s) all run on the
   loop thread; one slow call stalls every connection for the duration.
-- **Status (Unreleased):** the blast radius is bounded — `Http` defaults to 10 s overall / 5 s
+- **Status (0.3.0):** the blast radius is bounded — `Http` defaults to 10 s overall / 5 s
   connect with an explicit opt-up, and `Sys.sleep` caps at 10 s. The real fix is the deferred-
   exchange + `curl_multi` design in ADR-0018 (needs G16); blocking remains a documented latency
   risk, not an unbounded outage.
@@ -78,7 +78,7 @@ honest: an item here is not “done” because it has a plan or a test that only
 
 ### G19. Listener limitations
 
-- **Status (Unreleased):** EMFILE/ENFILE on accept now pauses the listener for 250 ms via a timer
+- **Status (0.3.0):** EMFILE/ENFILE on accept now pauses the listener for 250 ms via a timer
   instead of spinning; `--listen '[::1]:PORT'` (and any IPv6 bind address) is supported with a
   dual-stack socket; the backlog is 511.
 - **Remaining:** a single read event can still dispatch an unbounded batch of pipelined requests
@@ -93,7 +93,7 @@ honest: an item here is not “done” because it has a plan or a test that only
 
 ### G21. The sandbox is installed after the script top level runs — RESOLVED
 
-- **Resolution (Unreleased):** `wc_host_load_source` (public API) splits reading from executing.
+- **Resolution (0.3.0):** `wc_host_load_source` (public API) splits reading from executing.
   The CLI now reads the entry script before enabling the sandbox and runs its top level under
   Landlock+seccomp; `test_sandbox.sh` proves a top-level outbound `Http.request` is denied while
   the same call succeeds with `--no-sandbox`. `wc_host_load` remains for embedders that do not
@@ -101,7 +101,7 @@ honest: an item here is not “done” because it has a plan or a test that only
 
 ### G22. `fuzz_h2_feed` is coverage-blind — RESOLVED
 
-- **Resolution (Unreleased):** the target now compiles the nghttp2 adapter sources directly (like
+- **Resolution (0.3.0):** the target now compiles the nghttp2 adapter sources directly (like
   its sibling targets), so libFuzzer drives adapter coverage (458 counters vs 3 before).
 
 ### G23. Heap budget is a request gate, not a hard cap
@@ -152,7 +152,7 @@ honest: an item here is not “done” because it has a plan or a test that only
   SETTINGS; 100 streams can hold 100 × 1 MiB and arbitrarily long `:path` strings.
 - **Status:** body/response/path limits and SETTINGS max-concurrent/header-list are wired; path oversize
   aborts the stream. Idle timer resets on h2 activity (verified by `test_h2_idle`; the earlier
-  "resets on activity" claim here predated the code and was corrected in the Unreleased pass).
+  "resets on activity" claim here predated the code and was corrected in the 0.3.0 pass).
   Per-stream header byte budget added. Remaining: explicit request deadline test.
   100-unique-body is covered by `test_h2_unique`; `fuzz_h2_feed` exercises the adapter under
   ASan/UBSan with a preface seed.
@@ -193,7 +193,7 @@ honest: an item here is not “done” because it has a plan or a test that only
   importable.
 - **Needed:** allocate canonical IDs with the VM allocator; deny unknown modules explicitly; ASan
   10k-resolve test; remove the flat `module_path` stub.
-- **Status (Unreleased pass):** the `wc_mem_malloc`/`free` allocator mixing found by review is fixed
+- **Status (0.3.0):** the `wc_mem_malloc`/`free` allocator mixing found by review is fixed
   across http2/response/module; loadable module names are validated as single path segments with a
   1 MiB size cap, and short reads are rejected. The loader still uses `fopen`, so a symlink under
   `module_path` is followed — symlink escape remains part of G5. The rooted loader, explicit

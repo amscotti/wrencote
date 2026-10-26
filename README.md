@@ -50,8 +50,9 @@ docker run --rm -p 8080:8080 -v "$PWD":/work -w /work wrencote \
 ## Release artifact
 
 The v0.2 artifact is a glibc build with TLS/HTTP2 (OpenSSL and nghttp2). The v0.1 artifact remains a
-static musl HTTP/1.1 build (`tools/build_musl.sh`).
-The source build above uses the host compiler.
+static musl HTTP/1.1 build (`tools/build_musl.sh`). v0.3.0 is a source release containing the
+correctness and hardening pass; build it with the steps above or the `Dockerfile`
+(`tools/make_release.sh` packages the next artifact).
 
 ## Docs
 
@@ -63,8 +64,11 @@ The source build above uses the host compiler.
 
 ## Status
 
-v0.2.1 adds TLS and HTTP/2 (ALPN, multiplexing, h2spec-clean). v0.1.0 remains HTTP/1.1-only. See
-`CHANGELOG.md` and `docs/http2.md`.
+v0.3.0 is a correctness and hardening pass over the loop, HTTP/1.1, HTTP/2, TLS, sandbox, and VM
+layers: pipelining and write backpressure actually work, h2 no longer drops streams or bodies, TLS
+handshakes no longer spin, the sandbox now covers the script top level, and heap-budget handling
+recovers instead of wedging. v0.2.1 added TLS and HTTP/2; v0.1.0 remains HTTP/1.1-only. See
+`CHANGELOG.md`, `GAPS.md`, and `docs/http2.md`.
 
 ## Licence
 

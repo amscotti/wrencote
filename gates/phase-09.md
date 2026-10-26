@@ -41,7 +41,7 @@ ctest -R test_tls
 
 `ctest -R 'test_h2_frame|test_h2_server|test_tls|test_tls_transport|test_tls_alpn|test_tls_server|test_http2_server'`:
 8/8 passed. Full `ci-local`: **40/40 tests**, all gates green. (`src/http2/conn.[ch]` and its test were
-removed in the Unreleased pass; the production adapter is covered by `test_h2_server` plus the
+removed in the 0.3.0 pass; the production adapter is covered by `test_h2_server` plus the
 integration suite.)
 
 ### Conformance status

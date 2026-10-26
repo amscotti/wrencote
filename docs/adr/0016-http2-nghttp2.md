@@ -25,7 +25,7 @@ exported from `libwrencote.so`.
 
 The existing `src/http2/frame.c` control-plane code is retained as a bounded parser test surface and
 is not the production HTTP/2 path. (The dead hand-written `conn.c` parser was removed in the
-Unreleased pass once the nghttp2 adapter had equivalent tests.)
+0.3.0 pass once the nghttp2 adapter had equivalent tests.)
 
 ## Consequences
 

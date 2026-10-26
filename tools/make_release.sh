@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-version="${1:-0.2.1}"
+version="${1:-0.3.0}"
 prefix="$(mktemp -d)"
 dist="dist/wrencote-${version}-linux-x86_64"
 trap 'rm -rf "$prefix"' EXIT

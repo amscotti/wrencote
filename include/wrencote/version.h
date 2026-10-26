@@ -4,9 +4,9 @@
 #include "wrencote/export.h"
 
 #define WC_VERSION_MAJOR 0
-#define WC_VERSION_MINOR 2
-#define WC_VERSION_PATCH 1
-#define WC_VERSION_STRING "0.2.1"
+#define WC_VERSION_MINOR 3
+#define WC_VERSION_PATCH 0
+#define WC_VERSION_STRING "0.3.0"
 
 #ifdef __cplusplus
 extern "C" {

@@ -26,7 +26,7 @@ Land the bounds now, and move to callback-style asynchronous module I/O in v0.3/
    natural special case instead of a special path.
 3. **HTTP via curl_multi on the loop.** No worker threads: `curl_multi_socket_action` registers
    its sockets and timers on the existing `wc_loop` (the `blocked_on` transport work in the
-   Unreleased pass is the shape of this integration). DNS uses curl's threaded resolver inside
+   0.3.0 pass is the shape of this integration). DNS uses curl's threaded resolver inside
    libcurl. New callback APIs — `Http.request(method, url, headers, body) { |res| … }` — with the
    synchronous forms retained for CLI/batch use.
 4. **Timers for sleep.** `Sys.sleep(ms, fn)` schedules a loop timer and resumes via the deferred

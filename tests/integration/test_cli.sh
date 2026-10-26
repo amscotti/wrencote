@@ -5,7 +5,7 @@ build="${1:-build/dev}"
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 bin="$build/wrencote"
 
-"$build/wrencote" --version | grep -q "wrencote 0.2.1"
+"$build/wrencote" --version | grep -q "wrencote 0.3.0"
 "$build/wrencote" --help | grep -q "usage:"
 timeout 5 "$build/wrencote" run tests/data/print.wren --allow sys --no-listen --no-sandbox >/tmp/wc-print.out 2>&1
 grep -q hello /tmp/wc-print.out

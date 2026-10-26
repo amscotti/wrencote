@@ -3,7 +3,7 @@
 import json
 import sys
 
-version = sys.argv[1] if len(sys.argv) > 1 else "0.2.1"
+version = sys.argv[1] if len(sys.argv) > 1 else "0.3.0"
 components = [
     {"type": "library", "name": "wrencote", "version": version},
     {

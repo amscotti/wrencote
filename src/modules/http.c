@@ -211,7 +211,7 @@ static bool http_perform(WrenVM *vm, bool collect_lines, http_result *result) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, http_timeout_ms);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, WC_HTTP_CONNECT_TIMEOUT_S);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wrencote-http/0.2");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wrencote-http/0.3");
     if (body_len > 0) {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_len);

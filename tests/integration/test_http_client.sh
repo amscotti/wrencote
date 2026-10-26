@@ -52,6 +52,12 @@ while True:
         break
 PY
 stall_pid=$!
+for _ in $(seq 1 50); do
+    if python3 -c 'import socket; s = socket.create_connection(("127.0.0.1", 18312), 0.2); s.close()' 2>/dev/null; then
+        break
+    fi
+    sleep 0.1
+done
 cat >/tmp/wc-http-timeout.wren <<'WREN'
 import "http" for Http
 Http.setTimeout(500)

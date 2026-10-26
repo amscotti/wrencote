@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-26
 
 Correctness and hardening pass over the event loop, HTTP/1.1, HTTP/2, TLS, and sandbox layers.
 Full test suite (40 ctest targets) green on Linux aarch64 (Debian 13, gcc 14, ASan+UBSan).

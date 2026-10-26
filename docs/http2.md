@@ -58,3 +58,7 @@ python3 tests/integration/test_h2_unique.py 18462
 and header parity, and response headers. `test_h2_p99.py` measures the
 slow-reader gate. `tests/fuzz/fuzz_h2_feed.c` fuzzes the adapter under
 ASan/UBSan.
+
+Last full run (2026-10-26, Linux aarch64, ASan build): h2spec 2.6.0
+**146 passed, 0 skipped, 0 failed**; h2load 1000/1000 succeeded (58.6k req/s);
+slow-reader p99 6.6 ms baseline vs 6.5 ms with a concurrent slow stream.

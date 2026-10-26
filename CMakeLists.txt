@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.0)
-project(wrencote VERSION 0.2.1 LANGUAGES C)
+project(wrencote VERSION 0.3.0 LANGUAGES C)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 option(WRENCOTE_BUILD_TLS "Build the TLS transport (requires OpenSSL)" ON)
 option(WRENCOTE_ENABLE_TLS "Compile TLS into libwrencote" ON)

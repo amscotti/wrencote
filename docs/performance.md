@@ -24,3 +24,10 @@ cc -O2 -I src -I include -I third_party/wren/src/include bench/wc_bench.c \
 
 The request budget is dominated by Wren handler dispatch, not HTTP parsing. Native `fs` calls are
 blocking; `net` never blocks.
+
+## Re-verification (2026-10-26)
+
+Gate suite re-run on Linux aarch64 (Apple M1 Max container, ASan dev build) after the v0.3.0
+correctness pass: h2spec 2.6.0 146/146, h2load 1000/1000 at 58.6k req/s, slow-reader p99 6.6 ms
+baseline vs 6.5 ms under a concurrent 1 MiB slow stream (gate is 2x). The x86-64 figures above
+remain the published throughput/tail baseline.
