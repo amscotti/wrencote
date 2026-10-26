@@ -35,7 +35,9 @@ Full test suite (40 ctest targets) green on Linux aarch64 (Debian 13, gcc 14, AS
   submit resets the staged body and resets the stream.
 - HTTP/2: `HEAD`/204/304/1xx responses carry no DATA frames (h1 parity); the artificial 16-byte
   `:method` cap is removed; removed the nonstandard per-response PRIORITY frame and the dead
-  hand-rolled frame parser (`src/http2/conn.c`) that rejected HEADERS/DATA.
+  hand-rolled frame parser (`src/http2/conn.c`) that rejected HEADERS/DATA. The h2 response path
+  also no longer forms a pointer from a NULL header buffer (clang-18 UBSan caught the zero-offset
+  null-pointer arithmetic).
 - TLS: `SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER` (prevents OpenSSL
   `BAD_WRITE_RETRY` kills under h2 backpressure), `SSL_MODE_RELEASE_BUFFERS`, and the TLS 1.2
   session-ID cache disabled. A short `SSL_write` now reports a short `writev` instead of dropping

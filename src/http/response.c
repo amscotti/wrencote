@@ -117,7 +117,10 @@ wc_status wc_http_response_send(wc_http_response *response, int status, const vo
         wc_h2_header extra[64];
         size_t extra_count = 0;
         char type_text[128] = "text/plain; charset=utf-8";
-        char *raw = (char *)response->headers.data;
+        /* Never form a pointer from NULL + 0 (UB, caught by clang-18 UBSan):
+         * an empty header buffer is represented by a static empty string. */
+        static char empty_headers[] = "";
+        char *raw = response->headers.data != NULL ? (char *)response->headers.data : empty_headers;
         if (response->headers.cap > response->headers.len) {
             raw[response->headers.len] = '\0';
         }
